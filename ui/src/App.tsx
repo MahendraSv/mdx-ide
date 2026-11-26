@@ -914,12 +914,6 @@ export default function App() {
         </button>
 
         <div className="title-right">
-          {git.status && (
-            <button type="button" className="chip-pill branch-chip" aria-label={`Branch ${git.status.branch ?? git.status.head}. Switch or create a branch`} onClick={() => void openBranches()}>
-              <Icon size={13} sw={2}><circle cx="6" cy="5" r="2" /><circle cx="6" cy="19" r="2" /><circle cx="18" cy="8" r="2" /><path d="M6 7v10M18 10c0 4-6 3-12 7" /></Icon>
-              <span>{git.status.branch ?? git.status.head}</span>
-            </button>
-          )}
           <button type="button" className="btn-ghost" onClick={() => void openFolder()}>Open folder…</button>
           <button type="button" className="btn-ghost" onClick={save} disabled={!dirty}>Save</button>
           <div role="group" aria-label="Theme" className="group">
@@ -1312,6 +1306,12 @@ export default function App() {
       {!panelShown && <div className="toast-floating">{toastView}</div>}
 
       <footer className="status">
+        {git.status && (
+          <button type="button" className="status-branch" aria-label={`Branch ${git.status.branch ?? git.status.head}. Switch or create a branch`} title="Switch or create a branch" disabled={gitBusy} onClick={() => void openBranches()}>
+            <Icon size={13} sw={2}><circle cx="6" cy="5" r="2" /><circle cx="6" cy="19" r="2" /><circle cx="18" cy="8" r="2" /><path d="M6 7v10M18 10c0 4-6 3-12 7" /></Icon>
+            <span>{git.status.branch ?? git.status.head}</span>
+          </button>
+        )}
         <span><span className={`ok-dot${errors ? " bad" : ""}`} />{problems} {problems === 1 ? "problem" : "problems"}</span>
         {path && <span>Ln {cursor.line}, Col {cursor.column}</span>}
         {path && <span>MDX · UTF-8 · LF</span>}

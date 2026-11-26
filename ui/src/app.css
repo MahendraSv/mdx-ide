@@ -197,6 +197,12 @@ kbd { font-size: 11px; padding: 2px 6px; border-radius: 5px; background: var(--c
 
 .status { height: 28px; flex-shrink: 0; display: flex; align-items: center; gap: 18px; padding: 0 14px; border-top: 1px solid var(--line); background: var(--chrome); font-size: 12px; color: var(--muted); }
 .status .sp { flex: 1; }
+/* Branch switcher, flush with the left edge as in other editors. */
+.status-branch { display: flex; align-items: center; gap: 6px; align-self: stretch; flex-shrink: 0; max-width: 240px; margin-left: -14px; margin-right: -6px; padding: 0 10px 0 14px; border: 0; background: transparent; color: var(--text2); font-size: 12px; }
+.status-branch:hover:not(:disabled) { background: var(--active); color: var(--text0); }
+.status-branch:focus-visible { outline-offset: -2px; }
+.status-branch svg { flex-shrink: 0; }
+.status-branch span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .status .ok-dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: var(--ok); margin-right: 6px; }
 .status .ok-dot.bad { background: var(--err); }
 .status .mono { font-family: var(--font-mono); }
@@ -309,9 +315,6 @@ kbd { font-size: 11px; padding: 2px 6px; border-radius: 5px; background: var(--c
 /* ---- Git: shared ---- */
 .rail-btn { position: relative; }
 .rail-badge { position: absolute; top: 4px; right: 3px; min-width: 16px; height: 16px; padding: 0 3px; border-radius: 999px; background: var(--accent); color: var(--on-accent); box-shadow: 0 0 0 2px var(--chrome); font: 700 10px/16px var(--font-ui); text-align: center; }
-.branch-chip { max-width: 190px; }
-.branch-chip span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-button.chip-pill:hover { color: var(--text0); background: var(--active); }
 .diff-head .sp, .crumbs .sp { flex: 1; }
 .git-note { padding: 4px 14px; font-size: 12px; color: var(--muted); }
 .git-error { color: var(--err); white-space: pre-wrap; overflow-wrap: anywhere; }
