@@ -190,7 +190,13 @@ impl Workspace {
                 let relative = relative_to(from_dir, &wanted);
                 let dotted = import || path == "." || path.starts_with("./") || relative.is_empty();
                 match relative.as_str() {
-                    "" => if path.ends_with('/') || !import { "./".into() } else { ".".into() },
+                    "" => {
+                        if path.ends_with('/') || !import {
+                            "./".into()
+                        } else {
+                            ".".into()
+                        }
+                    }
                     r if r.starts_with("..") => relative,
                     _ if dotted => format!("./{relative}"),
                     _ => relative,
@@ -411,7 +417,10 @@ mod tests {
             ("docs/guides/pic.png", ""),
         ]);
         let report = ws.rename_updating_links("docs/guides", "docs/archive/howto", &HashMap::new()).unwrap();
-        assert_eq!(ws.read("docs/home.mdx").unwrap(), "[i](./archive/howto) [s](./archive/howto/) [t](/archive/howto/two) [o](./archive/howto/index.mdx)\n");
+        assert_eq!(
+            ws.read("docs/home.mdx").unwrap(),
+            "[i](./archive/howto) [s](./archive/howto/) [t](/archive/howto/two) [o](./archive/howto/index.mdx)\n"
+        );
         // Only the link leaving the folder changes.
         assert_eq!(ws.read("docs/archive/howto/index.mdx").unwrap(), "[sib](./two.mdx) [up](../../home.mdx) ![p](pic.png)\n");
         assert_eq!(ws.read("docs/archive/howto/two.mdx").unwrap(), "[idx](.) [home](/home)\n");
