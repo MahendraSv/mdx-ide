@@ -1,16 +1,21 @@
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { confirm, open } from "@tauri-apps/plugin-dialog";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { api, onWorkspaceChanged, type Diagnostic, type DocumentAnalysis, type WorkspaceInfo } from "./api";
+import { api, onWorkspaceChanged, type Blame, type Branch, type Diagnostic, type DocumentAnalysis, type WorkspaceInfo } from "./api";
 import { Editor, type EditorHandle } from "./editor/Editor";
 import { canMove, Explorer, NewFileIcon, NewFolderIcon, type Draft, type Entry, type EntryKind } from "./panels/Explorer";
 import { Outline, Palette, Problems, Search } from "./panels/Panels";
 import { CommandPalette, type PaletteCommand } from "./CommandPalette";
 import { FrontmatterPanel } from "./FrontmatterPanel";
 import { TabStrip } from "./TabStrip";
+import { DiffView, type DiffMode } from "./git/DiffView";
+import { GitPanel, pathsOf } from "./git/GitPanel";
+import { explorerMarks, workspacePath, type DiffTarget } from "./git/model";
+import { useGit } from "./git/useGit";
 import { Preview, type PreviewHandle } from "./Preview";
 
-type SideTab = "files" | "search" | "components";
+type SideTab = "files" | "search" | "components" | "git";
+const SIDE_TITLES: Record<SideTab, string> = { files: "Explorer", search: "Search", components: "Components", git: "Source control" };
 type ViewMode = "code" | "split" | "preview";
 type Theme = "dark" | "light";
 type Device = "desktop" | "mobile";
@@ -143,6 +148,20 @@ export default function App() {
     if (!sidebarOpen || tab !== "files") setDraft(null);
   }, [sidebarOpen, tab]);
   const [fmOpen, setFmOpen] = useState(false);
+  const git = useGit(ws);
+  /** The file whose changes fill the main area; null shows the editor and preview. */
+  const [diff, setDiff] = useState<DiffTarget | null>(null);
+  const [diffMode, setDiffMode] = useState<DiffMode>("source");
+  const diffRef = useRef(diff);
+  diffRef.current = diff;
+  const [commitMessage, setCommitMessage] = useState("");
+  const [gitBusy, setGitBusy] = useState(false);
+  const [gitActivity, setGitActivity] = useState<string | null>(null);
+  const [branches, setBranches] = useState<Branch[] | null>(null);
+  const [blameOn, setBlameOn] = useState(false);
+  const [blame, setBlame] = useState<{ path: string; value: Blame } | null>(null);
+  /** Bumped by typing while blame is shown. */
+  const [typed, setTyped] = useState(0);
   // The preview loads the team's component bundle once, when it starts. Bumping this restarts it.
   const [previewGeneration, setPreviewGeneration] = useState(0);
   const [device, setDevice] = useState<Device>(initialDevice);
@@ -265,6 +284,7 @@ export default function App() {
       lintSeq.current++;
       pathRef.current = p;
       setPath(p);
+      setDiff(null);
       setSelectedDir(null);
       setAnalysis(EMPTY);
       setCompileError(null);
@@ -292,6 +312,7 @@ export default function App() {
         }
       }
       if (pathRef.current !== p) activate(p);
+      else setDiff(null);
       jump();
     } catch (e) {
       setError(String(e));
@@ -350,6 +371,8 @@ export default function App() {
       activate(null);
       setDraft(null);
       setInfo(null);
+      setCommitMessage("");
+      setBlame(null);
       setTab("files");
       const first =
         info.files.find((f) => /(^|\/)(intro|index|readme)\.mdx$/i.test(f.path) && f.path.split("/").length <= 2) ?? info.files[0];
@@ -493,6 +516,148 @@ export default function App() {
     }
   };
 
+  // An open diff follows its file between "staged" and "unstaged", and closes when it is clean.
+  useEffect(() => {
+    if (!diff || !git.status) return;
+    const file = git.status.files.find((f) => f.path === diff.path);
+    const has = (staged: boolean) => !!file && (staged ? !!file.staged : !!file.unstaged || file.conflicted);
+    if (!has(diff.staged)) setDiff(has(!diff.staged) ? { path: diff.path, staged: !diff.staged } : null);
+  }, [git.status]);
+
+  // Blame the text on screen, shortly after it, the file or the repository changes.
+  useEffect(() => {
+    const buffer = path ? buffers.current.get(path) : undefined;
+    if (!blameOn || !path || !buffer || !git.status) return setBlame(null);
+    let current = true;
+    const timer = window.setTimeout(() => {
+      api.gitBlame(path, buffer.text).then(
+        (value) => current && setBlame({ path, value }),
+        (e) => {
+          if (!current) return;
+          setBlameOn(false);
+          setError(`Blame failed: ${String(e)}`);
+        },
+      );
+    }, blame?.path === path ? 600 : 0);
+    return () => {
+      current = false;
+      window.clearTimeout(timer);
+    };
+  }, [blameOn, path, typed, git.revision]);
+
+  /** Run a git command, then show the new state. Errors are what git itself said. */
+  const gitAction = async (work: () => Promise<void>) => {
+    if (gitBusy) return;
+    setGitBusy(true);
+    setError(null);
+    try {
+      await work();
+    } catch (e) {
+      setError(String(e));
+    } finally {
+      await git.refresh();
+      setGitBusy(false);
+    }
+  };
+
+  const stage = (paths: string[]) => void gitAction(() => api.gitStage(paths));
+  const unstage = (paths: string[]) => void gitAction(() => api.gitUnstage(paths));
+
+  const commit = () =>
+    void gitAction(async () => {
+      const unsaved = [...buffers.current.values()].filter((b) => b.text !== b.saved).length;
+      if (
+        unsaved &&
+        !(await confirm(`${unsaved} open ${unsaved === 1 ? "file has" : "files have"} unsaved changes that will not be in this commit. Commit anyway?`, { title: "Unsaved changes", okLabel: "Commit", cancelLabel: "Cancel" }))
+      )
+        return;
+      const id = await api.gitCommit(commitMessage);
+      setCommitMessage("");
+      setInfo(`Committed ${id}.`);
+    });
+
+  /** After a branch switch: reload open files, and close those the branch does not have. */
+  const reloadFromDisk = async () => {
+    const gone: string[] = [];
+    for (const [p, buffer] of [...buffers.current]) {
+      try {
+        const contents = await api.readFile(p);
+        if (contents === buffer.saved) continue;
+        editor.current?.forget(String(buffer.version));
+        Object.assign(buffer, { text: contents, saved: contents, version: ++nextVersion.current, code: null });
+      } catch {
+        gone.push(p);
+      }
+    }
+    dropTabs(gone);
+    setReloads((n) => n + 1);
+    setWs(await api.listFiles());
+    setPreviewGeneration((n) => n + 1);
+    const active = pathRef.current;
+    const buffer = active ? buffers.current.get(active) : undefined;
+    if (active && buffer) refresh(active, buffer.text);
+  };
+
+  const switchBranch = (name: string) =>
+    void gitAction(async () => {
+      // Saving afterwards would write this branch's text over the other branch's file.
+      const unsaved = [...buffers.current].filter(([, b]) => b.text !== b.saved).map(([p]) => p);
+      if (unsaved.length) throw `Save or close these files before switching branches: ${unsaved.join(", ")}`;
+      await api.gitSwitch(name);
+      setDiff(null);
+      await reloadFromDisk();
+      setInfo(`Switched to ${name}.`);
+    });
+
+  const createBranch = (name: string) =>
+    void gitAction(async () => {
+      await api.gitCreateBranch(name);
+      setInfo(`Created and switched to ${name}.`);
+    });
+
+  /** A command that talks to the remote, with its progress shown in the panel. */
+  const remoteAction = (activity: string, work: () => Promise<void>) =>
+    void gitAction(async () => {
+      setGitActivity(activity);
+      setInfo(null);
+      try {
+        await work();
+      } finally {
+        setGitActivity(null);
+      }
+    });
+  const plural = (n: number) => `${n} ${n === 1 ? "commit" : "commits"}`;
+
+  const fetchRemote = () =>
+    remoteAction("Fetching…", async () => {
+      await api.gitFetch();
+      setInfo("Fetched from the remote.");
+    });
+
+  const pull = () =>
+    remoteAction("Pulling…", async () => {
+      // Pulling changes files; saving afterwards would undo what arrived.
+      const unsaved = [...buffers.current].filter(([, b]) => b.text !== b.saved).map(([p]) => p);
+      if (unsaved.length) throw `Save or close these files before pulling: ${unsaved.join(", ")}`;
+      const count = await api.gitPull();
+      if (count) await reloadFromDisk();
+      setInfo(count ? `Pulled ${plural(count)}.` : "Already up to date.");
+    });
+
+  const push = () =>
+    remoteAction("Pushing…", async () => {
+      const { target, published, commits } = await api.gitPush();
+      setInfo(published ? `Published the branch to ${target}.` : `Pushed ${plural(commits)} to ${target}.`);
+    });
+
+  const openBranches = async () => {
+    try {
+      setBranches(await api.gitBranches());
+    } catch (e) {
+      setError(String(e));
+    }
+  };
+
   /** Save the active file. */
   const save = useCallback(async () => {
     const p = pathRef.current;
@@ -528,6 +693,7 @@ export default function App() {
     const buffer = p ? buffers.current.get(p) : undefined;
     if (!p || !buffer) return;
     buffer.text = t;
+    if (blameOn) setTyped((n) => n + 1);
     markDirty(p, t !== buffer.saved);
     refresh(p, t);
   };
@@ -560,8 +726,14 @@ export default function App() {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const current = pathRef.current;
+      const closing = (e.metaKey || e.ctrlKey) && !e.altKey && !e.shiftKey && e.key === "w";
+      if (closing && diffRef.current) {
+        e.preventDefault();
+        setDiff(null);
+        return;
+      }
       if (!current) return;
-      if ((e.metaKey || e.ctrlKey) && !e.altKey && !e.shiftKey && e.key === "w") {
+      if (closing) {
         e.preventDefault();
         void closeTab(current);
       } else if (e.ctrlKey && e.key === "Tab") {
@@ -642,6 +814,23 @@ export default function App() {
           { id: "delete-file", label: "Delete current file…", run: () => void deleteEntry({ path, kind: "file" }) },
         ]
       : []),
+    ...(git.status
+      ? [
+          { id: "git-panel", label: "Git: Show source control", run: () => showSide("git") },
+          { id: "git-branch", label: "Git: Switch or create branch…", run: () => void openBranches() },
+          ...(git.status.remotes.length
+            ? [
+                { id: "git-fetch", label: "Git: Fetch", run: fetchRemote },
+                { id: "git-pull", label: "Git: Pull", run: pull },
+                { id: "git-push", label: "Git: Push", run: push },
+              ]
+            : []),
+          ...(path ? [{ id: "git-blame", label: blameOn ? "Git: Hide blame" : "Git: Show blame", run: () => setBlameOn((b) => !b) }] : []),
+          ...git.status.files
+            .filter((f) => path && workspacePath(git.status!, f.path) === path)
+            .map((f) => ({ id: "git-diff", label: "Git: Show changes in current file", run: () => setDiff({ path: f.path, staged: !f.unstaged && !f.conflicted }) })),
+        ]
+      : []),
     { id: "toggle-sidebar", label: "Toggle sidebar", hint: "⌘B", run: () => setSidebarOpen((o) => !o) },
     { id: "save", label: "Save file", hint: "⌘S", run: () => void save() },
     { id: "close-tab", label: "Close tab", hint: "⌘W", run: () => path && void closeTab(path) },
@@ -682,6 +871,12 @@ export default function App() {
         </button>
 
         <div className="title-right">
+          {git.status && (
+            <button type="button" className="chip-pill branch-chip" aria-label={`Branch ${git.status.branch ?? git.status.head}. Switch or create a branch`} onClick={() => void openBranches()}>
+              <Icon size={13} sw={2}><circle cx="6" cy="5" r="2" /><circle cx="6" cy="19" r="2" /><circle cx="18" cy="8" r="2" /><path d="M6 7v10M18 10c0 4-6 3-12 7" /></Icon>
+              <span>{git.status.branch ?? git.status.head}</span>
+            </button>
+          )}
           <button type="button" className="btn-ghost" onClick={() => void openFolder()}>Open folder…</button>
           <button type="button" className="btn-ghost" onClick={save} disabled={!dirty}>Save</button>
           <div role="group" aria-label="Theme" className="group">
@@ -723,11 +918,19 @@ export default function App() {
           {railBtn("files", "Explorer", <Icon><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z" /><path d="M14 3v5h5" /></Icon>)}
           {railBtn("search", "Search", <Icon><circle cx="11" cy="11" r="7" /><path d="m20 20-3.5-3.5" /></Icon>)}
           {railBtn("components", "Components", <Icon><rect x="3" y="3" width="7" height="7" rx="1.5" /><rect x="14" y="3" width="7" height="7" rx="1.5" /><rect x="3" y="14" width="7" height="7" rx="1.5" /><rect x="14" y="14" width="7" height="7" rx="3.5" /></Icon>)}
+          {railBtn(
+            "git",
+            "Source control",
+            <>
+              <Icon><circle cx="6" cy="5" r="2" /><circle cx="6" cy="19" r="2" /><circle cx="18" cy="8" r="2" /><path d="M6 7v10M18 10c0 4-6 3-12 7" /></Icon>
+              {!!git.status?.files.length && <span className="rail-badge">{git.status.files.length > 99 ? "99+" : git.status.files.length}</span>}
+            </>,
+          )}
         </nav>
 
-        <aside className="sidebar" style={{ width: sidebarWidth }} hidden={!sidebarOpen} aria-label={tab === "files" ? "Explorer" : tab === "search" ? "Search" : "Components"}>
+        <aside className="sidebar" style={{ width: sidebarWidth }} hidden={!sidebarOpen} aria-label={SIDE_TITLES[tab]}>
           <div className="side-head">
-            <span className="eyebrow">{tab === "files" ? "Explorer" : tab === "search" ? "Search" : "Components"}</span>
+            <span className="eyebrow">{SIDE_TITLES[tab]}</span>
             <span className="side-actions">
               {ws && tab === "files" && (
                 <>
@@ -760,6 +963,7 @@ export default function App() {
                   current={path}
                   selectedDir={selectedDir}
                   dirtyPaths={dirtyPaths}
+                  gitMarks={explorerMarks(git.status ?? null)}
                   draft={draft}
                   onOpen={(p) => void openFile(p)}
                   onSelectDir={setSelectedDir}
@@ -776,6 +980,25 @@ export default function App() {
                 </div>
                 <Outline items={analysis.outline} onGoto={(l) => editor.current?.gotoLine(l)} />
               </>
+            ) : tab === "git" ? (
+              <GitPanel
+                status={git.status}
+                error={git.error}
+                message={commitMessage}
+                busy={gitBusy}
+                activity={gitActivity}
+                selected={diff}
+                onMessage={setCommitMessage}
+                onStage={stage}
+                onUnstage={unstage}
+                onCommit={commit}
+                onOpen={setDiff}
+                onBranches={() => void openBranches()}
+                onRefresh={() => void git.refresh()}
+                onFetch={fetchRemote}
+                onPull={pull}
+                onPush={push}
+              />
             ) : tab === "search" ? (
               <Search onOpen={(p, l, c) => void openFile(p, l, c)} />
             ) : (
@@ -807,8 +1030,8 @@ export default function App() {
 
         <main className="main">
           <div className="tabbar">
-            <TabStrip tabs={tabs} active={path} dirty={dirtyPaths} onSelect={(p) => p !== path && activate(p)} onClose={(p) => void closeTab(p)} />
-            {hasFmPanel && (
+            <TabStrip tabs={tabs} active={diff ? null : path} dirty={dirtyPaths} onSelect={(p) => (p !== path ? activate(p) : setDiff(null))} onClose={(p) => void closeTab(p)} />
+            {hasFmPanel && !diff && (
               <button type="button" className="btn-ghost fm-btn" aria-expanded={fmOpen} aria-controls="frontmatter-panel" onClick={() => setFmOpen((o) => !o)}>
                 <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" aria-hidden="true">
                   <path d={fmOpen ? "m6 9 6 6 6-6" : "m9 6 6 6-6 6"} />
@@ -817,7 +1040,7 @@ export default function App() {
                 {fmErrors > 0 && <span className="fm-count">{fmErrors}</span>}
               </button>
             )}
-            <div role="group" aria-label="View mode" className="group">
+            <div role="group" aria-label="View mode" className="group" hidden={!!diff}>
               {(["code", "split", "preview"] as ViewMode[]).map((m) => (
                 <button key={m} type="button" className="seg" aria-pressed={view === m} onClick={() => setView(m)}>
                   {m[0].toUpperCase() + m.slice(1)}
@@ -827,7 +1050,29 @@ export default function App() {
           </div>
 
           {/* A full-width row above the split, so the editor and preview columns stay aligned. */}
-          {hasFmPanel && fmOpen && (
+          {diff && (
+            <DiffView
+              target={diff}
+              revision={git.revision}
+              docPath={git.status ? workspacePath(git.status, diff.path) : null}
+              mode={diffMode}
+              dark={dark}
+              previewGeneration={previewGeneration}
+              unsaved={!!git.status && dirtyPaths.has(workspacePath(git.status, diff.path) ?? "")}
+              onMode={setDiffMode}
+              onToggleStage={() => {
+                const file = git.status?.files.find((f) => f.path === diff.path);
+                if (file) (diff.staged ? unstage : stage)(pathsOf(file));
+              }}
+              onOpenFile={() => {
+                const target = git.status && workspacePath(git.status, diff.path);
+                if (target) void openFile(target);
+              }}
+              onClose={() => setDiff(null)}
+            />
+          )}
+
+          {hasFmPanel && fmOpen && !diff && (
             <FrontmatterPanel
               key={path}
               schema={fmSchema}
@@ -838,7 +1083,8 @@ export default function App() {
             />
           )}
 
-          <div className="split">
+          {/* Hidden, not removed, while a diff is shown: the editor keeps its state. */}
+          <div className="split" hidden={!!diff}>
             <section className={`editor-pane${showPreview ? "" : " only"}`} aria-label="MDX source" hidden={!showEditor}>
               {path && activeBuffer ? (
                 <>
@@ -850,6 +1096,14 @@ export default function App() {
                       </span>
                     ))}
                     <span className="cur">{fileName}</span>
+                    {git.status && (
+                      <>
+                        <span className="sp" />
+                        <button type="button" className="blame-toggle" aria-pressed={blameOn} title="Show who last changed each line" onClick={() => setBlameOn((b) => !b)}>
+                          Blame
+                        </button>
+                      </>
+                    )}
                   </div>
                   <Editor
                     ref={editor}
@@ -857,6 +1111,7 @@ export default function App() {
                     initialText={activeBuffer.text}
                     diagnostics={diagnostics}
                     manifest={ws?.manifest}
+                    blame={blame?.path === path ? blame.value : null}
                     onChange={onChange}
                     onSave={save}
                     onTopLineChange={(l) => preview.current?.scrollToLine(l)}
@@ -969,6 +1224,19 @@ export default function App() {
             setPalette(null);
             requestAnimationFrame(() => editor.current?.focus());
           }}
+        />
+      )}
+
+      {branches && (
+        <CommandPalette
+          mode="all"
+          files={[]}
+          placeholder="Switch to a branch, or type a new name…"
+          badge="BR"
+          commands={branches.map((b) => ({ id: `branch:${b.name}`, label: b.name, hint: b.current ? "current" : b.remote ? "remote" : undefined, run: () => !b.current && switchBranch(b.name) }))}
+          extra={(query) => (query && !branches.some((b) => b.name === query) ? { id: "branch:new", label: `Create branch “${query}”`, hint: "from the current commit", run: () => createBranch(query) } : null)}
+          onOpenFile={() => {}}
+          onClose={() => setBranches(null)}
         />
       )}
 

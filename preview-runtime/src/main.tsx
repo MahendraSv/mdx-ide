@@ -103,8 +103,30 @@ function highlightActive() {
     if (active) el.dataset.label = `<${el.dataset.tag}> · line ${start}`;
   }
 }
-// React commits asynchronously; re-apply the outline whenever the document changes.
-new MutationObserver(highlightActive).observe(document.getElementById("root")!, { childList: true, subtree: true });
+/** Rendered diff: which top-level blocks differ from the other version. */
+let changes: { kind: "added" | "removed"; ranges: [number, number][] } | null = null;
+let scrolledToChange = false;
+
+function highlightChanges() {
+  for (const el of document.querySelectorAll<HTMLElement>("[data-line]")) {
+    const start = Number(el.dataset.line);
+    const end = Number(el.dataset.lineEnd ?? start);
+    const changed = !!changes?.ranges.some(([from, to]) => start <= to && end >= from);
+    el.classList.toggle("mdx-ide-added", changed && changes?.kind === "added");
+    el.classList.toggle("mdx-ide-removed", changed && changes?.kind === "removed");
+  }
+  const first = document.querySelector(".mdx-ide-added, .mdx-ide-removed");
+  if (first && !scrolledToChange) {
+    scrolledToChange = true;
+    first.scrollIntoView({ block: "center" });
+  }
+}
+
+// React commits asynchronously; re-apply the highlights whenever the document changes.
+new MutationObserver(() => {
+  highlightActive();
+  if (changes) highlightChanges();
+}).observe(document.getElementById("root")!, { childList: true, subtree: true });
 
 async function render(msg: Extract<ToPreview, { type: "render" }>) {
   currentVersion = msg.version;
@@ -163,6 +185,11 @@ window.addEventListener("message", (event: MessageEvent<ToPreview>) => {
     case "cursor":
       cursorLine = msg.line;
       highlightActive();
+      break;
+    case "changes":
+      changes = { kind: msg.kind, ranges: msg.ranges };
+      scrolledToChange = false;
+      highlightChanges();
       break;
     case "clear":
       currentVersion = -1; // discard any render still importing

@@ -69,7 +69,53 @@ export interface RenameReport {
   skipped: string[];
 }
 
+export interface ChangedFile {
+  /** Relative to the repository root. */
+  path: string;
+  origPath: string | null;
+  /** Index vs last commit: M, A, D, R, C, T. */
+  staged: string | null;
+  /** Working tree vs index; U = untracked. */
+  unstaged: string | null;
+  conflicted: boolean;
+}
+
+export interface GitStatus {
+  repoRoot: string;
+  /** The open folder inside the repository: "" or "sub/folder/". */
+  workspacePrefix: string;
+  branch: string | null;
+  head: string | null;
+  upstream: string | null;
+  /** The upstream branch is configured but no longer exists. */
+  upstreamGone: boolean;
+  remotes: string[];
+  ahead: number;
+  behind: number;
+  files: ChangedFile[];
+}
+
+export interface Branch { name: string; remote: boolean; current: boolean }
+export interface FileDiff { old: string; new: string; binary: boolean }
+export interface Blame {
+  commits: { id: string | null; author: string; time: number; summary: string }[];
+  /** Per line, an index into `commits`. */
+  lines: number[];
+}
+
 export const api = {
+  gitStatus: () => invoke<GitStatus | null>("git_status"),
+  gitStage: (paths: string[]) => invoke<void>("git_stage", { paths }),
+  gitUnstage: (paths: string[]) => invoke<void>("git_unstage", { paths }),
+  gitCommit: (message: string) => invoke<string>("git_commit", { message }),
+  gitBranches: () => invoke<Branch[]>("git_branches"),
+  gitSwitch: (name: string) => invoke<void>("git_switch", { name }),
+  gitCreateBranch: (name: string) => invoke<void>("git_create_branch", { name }),
+  gitFetch: () => invoke<void>("git_fetch"),
+  gitPull: () => invoke<number>("git_pull"),
+  gitPush: () => invoke<{ target: string; published: boolean; commits: number }>("git_push"),
+  gitDiff: (path: string, staged: boolean) => invoke<FileDiff>("git_diff", { path, staged }),
+  gitBlame: (path: string, contents: string) => invoke<Blame>("git_blame", { path, contents }),
   initialFolder: () => invoke<string | null>("initial_folder"),
   openWorkspace: (path: string) => invoke<WorkspaceInfo>("open_workspace", { path }),
   listFiles: () => invoke<WorkspaceInfo>("list_files"),

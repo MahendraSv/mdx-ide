@@ -18,6 +18,8 @@ interface Props {
   /** Overrides for reusing the palette as a picker. */
   placeholder?: string;
   badge?: string;
+  /** An action built from the typed text, listed last (e.g. "Create branch …"). */
+  extra?(query: string): PaletteCommand | null;
 }
 
 /** Subsequence fuzzy match; lower score is better, null = no match. */
@@ -42,7 +44,7 @@ export function fuzzy(query: string, text: string): number | null {
 
 type Item = { key: string; label: string; hint?: string; kind: "command" | "file"; run(): void };
 
-export function CommandPalette({ files, commands, mode, onOpenFile, onClose, placeholder, badge }: Props) {
+export function CommandPalette({ files, commands, mode, onOpenFile, onClose, placeholder, badge, extra }: Props) {
   const [query, setQuery] = useState("");
   const [index, setIndex] = useState(0);
   const input = useRef<HTMLInputElement>(null);
@@ -70,8 +72,11 @@ export function CommandPalette({ files, commands, mode, onOpenFile, onClose, pla
         out.push({ score: s, item: { key: f.path, label: f.path.slice(i + 1), hint: i >= 0 ? f.path.slice(0, i + 1) : "", kind: "file", run: () => onOpenFile(f.path) } });
       }
     }
-    return out.sort((a, b) => a.score - b.score).slice(0, 50).map((x) => x.item);
-  }, [query, files, commands, mode, onOpenFile]);
+    const found = out.sort((a, b) => a.score - b.score).slice(0, 50).map((x) => x.item);
+    const more = extra?.(query.trim());
+    if (more) found.push({ key: more.id, label: more.label, hint: more.hint, kind: "command", run: more.run });
+    return found;
+  }, [query, files, commands, mode, onOpenFile, extra]);
 
   useEffect(() => setIndex(0), [query]);
 
