@@ -23,6 +23,7 @@ mdx-core.workspace = true
 mdx-compile.workspace = true
 mdx-intel.workspace = true
 mdx-workspace.workspace = true
+mdx-git.workspace = true
 
 [features]
 # Used by `tauri build`; serves the bundled frontend instead of the dev server.

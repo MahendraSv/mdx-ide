@@ -1,5 +1,6 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { FileEntry } from "../api";
+import { describe } from "../git/model";
 
 export type EntryKind = "file" | "folder";
 /** A new file or folder being named inside `parent` ("" = workspace root). */
@@ -15,6 +16,8 @@ interface Props {
   /** The folder new entries go into; null follows the open file. */
   selectedDir: string | null;
   dirtyPaths?: ReadonlySet<string>;
+  /** Git change letters by path. */
+  gitMarks?: ReadonlyMap<string, string>;
   draft: Draft | null;
   onOpen(path: string): void;
   onSelectDir(path: string | null): void;
@@ -270,6 +273,7 @@ export function Explorer(props: Props) {
       {node.files.map((f) => {
         const ext = baseName(f.path).split(".").pop()!.toLowerCase();
         const entry: Entry = { path: f.path, kind: "file" };
+        const mark = props.gitMarks?.get(f.path);
         if (renaming?.path === f.path) return renameField(entry, depth);
         return (
           <div key={f.path} className="tree-row file">
@@ -287,6 +291,11 @@ export function Explorer(props: Props) {
               <span className={`badge-ext ${ext}`}>{ext.toUpperCase()}</span>
               <span className="name">{baseName(f.path)}</span>
               {dirtyPaths?.has(f.path) && <span className="dot" role="img" aria-label="Unsaved changes" />}
+              {mark && (
+                <span className={`git-letter tail letter-${mark === "!" ? "conflict" : mark}`} role="img" aria-label={`Git: ${describe(mark)}`} title={describe(mark)}>
+                  {mark}
+                </span>
+              )}
             </button>
             <span className="tree-actions">{moreButton(entry)}</span>
           </div>

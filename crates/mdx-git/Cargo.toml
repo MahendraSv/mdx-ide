@@ -1,0 +1,12 @@
+[package]
+name = "mdx-git"
+description = "Git integration: status, staging, commits, branches, diffs and blame, via the git command line."
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+serde.workspace = true
+thiserror.workspace = true
+
+[dev-dependencies]
+tempfile = "3"

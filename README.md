@@ -19,6 +19,7 @@ Built with **Tauri 2**. The Rust core does the parsing, compiling, checking and 
 | **Link checking**: relative/root-relative pages, `#anchors` (GitHub slugs), images in `static/`/`public/` | `mdx-intel::links` |
 | MDX syntax errors with positions (e.g. HTML comments, unclosed JSX), image alt-text check | `mdx-syntax` |
 | Outline panel, workspace search, Problems panel, word count, atomic saves, file watching (external edits reload, config hot-reloads) | various |
+| **Git**: Source Control panel (status, stage, commit, fetch, pull, push), branch create / switch, side-by-side source and rendered diffs, blame gutter. Needs `git` installed | `mdx-git`, `ui/src/git` |
 | Manifest generator for React/TypeScript design systems | `sidecars/manifest-gen` |
 
 ## Quick start
@@ -77,6 +78,7 @@ crates/
   mdx-syntax/      markdown-rs parse → outline, links, JSX usages, frontmatter, syntax errors
   mdx-compile/     mdxjs pipeline + Rust hast transforms (scroll-sync line ids)
   mdx-intel/       component manifest checks & completion, frontmatter schemas, link checker
+  mdx-git/         status, staging, commits, branches, diffs and blame (git CLI)
   mdx-workspace/   team config, file discovery, search, atomic saves, full per-doc analysis
 src-tauri/         Tauri shell: IPC commands, file watcher, mdxpreview:// protocol, capabilities
 ui/                React + Vite + CodeMirror 6 app

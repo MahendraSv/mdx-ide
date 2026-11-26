@@ -6,6 +6,8 @@ export interface PreviewHandle {
   render(code: string, docPath: string): void;
   scrollToLine(line: number): void;
   setCursor(line: number): void;
+  /** Rendered diff: mark changed blocks. */
+  markChanges(kind: "added" | "removed", ranges: [number, number][]): void;
   clear(): void;
 }
 
@@ -25,6 +27,7 @@ export const Preview = forwardRef<PreviewHandle, Props>(function Preview({ dark,
   const version = useRef(0);
   const pending = useRef<ToPreview | null>(null);
   const cursor = useRef(1);
+  const changes = useRef<ToPreview | null>(null);
   const onError = useRef(onRuntimeError);
   onError.current = onRuntimeError;
   const onClick = useRef(onSourceClick);
@@ -45,6 +48,7 @@ export const Preview = forwardRef<PreviewHandle, Props>(function Preview({ dark,
         setReady(true);
         if (pending.current) send(pending.current);
         send({ type: "cursor", line: cursor.current });
+        if (changes.current) send(changes.current);
       } else if (msg.type === "load-error") {
         onLoad.current?.(msg.message);
       } else if (msg.type === "click") {
@@ -75,6 +79,10 @@ export const Preview = forwardRef<PreviewHandle, Props>(function Preview({ dark,
     setCursor(line) {
       cursor.current = line;
       if (ready) send({ type: "cursor", line });
+    },
+    markChanges(kind, ranges) {
+      changes.current = { type: "changes", kind, ranges };
+      if (ready) send(changes.current);
     },
     clear() {
       pending.current = null;

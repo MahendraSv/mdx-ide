@@ -6,6 +6,8 @@ export type ToPreview =
   | { type: "scrollToLine"; line: number }
   /** Outline the component under the editor cursor. */
   | { type: "cursor"; line: number }
+  /** Rendered diff: mark the blocks overlapping these source line ranges. */
+  | { type: "changes"; kind: "added" | "removed"; ranges: [number, number][] }
   /** Empty the document (switching to a file that has not rendered yet). */
   | { type: "clear" }
   | { type: "theme"; dark: boolean };

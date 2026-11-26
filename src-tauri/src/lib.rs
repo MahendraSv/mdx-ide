@@ -3,6 +3,7 @@
 //! The heavy lifting lives in `crates/`; this layer only adapts it to IPC.
 
 mod commands;
+mod git;
 mod preview_protocol;
 mod watcher;
 
@@ -71,6 +72,18 @@ pub fn run() {
             commands::rename_entry,
             commands::trash_entry,
             commands::entry_file_count,
+            git::git_status,
+            git::git_stage,
+            git::git_unstage,
+            git::git_commit,
+            git::git_branches,
+            git::git_switch,
+            git::git_create_branch,
+            git::git_fetch,
+            git::git_pull,
+            git::git_push,
+            git::git_diff,
+            git::git_blame,
             commands::analyze,
             commands::compile_preview,
             commands::search,

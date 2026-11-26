@@ -25,6 +25,8 @@ pub fn watch(app: AppHandle, root: PathBuf) -> notify_debouncer_mini::notify::Re
         let mut paths = Vec::new();
         let mut config_changed = false;
         let mut folders_changed = false;
+        // A commit, checkout or staging done elsewhere: the Git panel needs a refresh.
+        let mut git_changed = false;
         let events = match res {
             Ok(DebouncedEventBatch::Events(events)) => events,
             // Missed events (or a future variant): refresh everything.
@@ -37,6 +39,9 @@ pub fn watch(app: AppHandle, root: PathBuf) -> notify_debouncer_mini::notify::Re
         for e in events.iter().filter(|e| matches!(e.kind, DebouncedEventKind::Any | DebouncedEventKind::AnyContinuous)) {
             let Ok(rel) = e.path.strip_prefix(&root_for_cb) else { continue };
             let rel = rel.to_string_lossy().replace('\\', "/");
+            if rel == ".git/HEAD" || rel == ".git/index" || rel.starts_with(".git/refs/") {
+                git_changed = true;
+            }
             if rel.starts_with(".git/") || rel.contains("node_modules/") || rel.ends_with(".mdx-ide-tmp") {
                 continue;
             }
@@ -58,7 +63,7 @@ pub fn watch(app: AppHandle, root: PathBuf) -> notify_debouncer_mini::notify::Re
                 }
             }
         }
-        if config_changed || folders_changed || !paths.is_empty() {
+        if config_changed || folders_changed || git_changed || !paths.is_empty() {
             paths.sort();
             paths.dedup();
             let _ = app.emit("workspace://changed", ChangedPayload { paths, config_changed });

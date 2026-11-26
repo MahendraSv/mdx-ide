@@ -1,10 +1,9 @@
 import { autocompletion, closeBrackets, closeBracketsKeymap, completionKeymap, snippet } from "@codemirror/autocomplete";
 import { defaultKeymap, history, historyKeymap, indentWithTab } from "@codemirror/commands";
-import { bracketMatching, foldGutter, HighlightStyle, indentOnInput, syntaxHighlighting } from "@codemirror/language";
-import { tags as t } from "@lezer/highlight";
+import { bracketMatching, foldGutter, indentOnInput, syntaxHighlighting } from "@codemirror/language";
 import { lintGutter, lintKeymap, setDiagnostics, type Diagnostic as CmDiagnostic } from "@codemirror/lint";
 import { highlightSelectionMatches, searchKeymap } from "@codemirror/search";
-import { EditorState, type StateEffect } from "@codemirror/state";
+import { Compartment, EditorState, type StateEffect } from "@codemirror/state";
 import {
   drawSelection,
   EditorView,
@@ -15,27 +14,16 @@ import {
   rectangularSelection,
 } from "@codemirror/view";
 import { forwardRef, useEffect, useImperativeHandle, useRef } from "react";
-import type { ComponentManifest, Diagnostic } from "../api";
+import type { Blame, ComponentManifest, Diagnostic } from "../api";
 import { mdxCompletionSource } from "./completion";
 import { mdxHover } from "./hover";
-import { mdxLanguage } from "./mdx-language";
+import { mdxHighlight, mdxLanguage } from "./mdx-language";
+import { blameGutter } from "../git/blame";
 import { clipboardToMarkdown } from "./paste-markdown";
 import { byteOffsetToPos } from "./positions";
 
-// Syntax colours come from the design tokens, so they follow the theme.
-const mdxHighlight = HighlightStyle.define([
-  { tag: [t.heading, t.strong], color: "var(--text0)", fontWeight: "600" },
-  { tag: t.emphasis, fontStyle: "italic" },
-  { tag: [t.keyword, t.moduleKeyword, t.controlKeyword], color: "var(--synKw)" },
-  { tag: [t.string, t.special(t.string), t.monospace], color: "var(--synStr)" },
-  { tag: [t.tagName, t.angleBracket], color: "var(--synTag)" },
-  { tag: [t.attributeName, t.propertyName], color: "var(--synAttr)" },
-  { tag: [t.definition(t.propertyName), t.labelName], color: "var(--synKey)" },
-  { tag: [t.comment, t.meta, t.processingInstruction, t.contentSeparator], color: "var(--dim)" },
-  { tag: t.link, color: "var(--synTag)", textDecoration: "underline" },
-  { tag: t.url, color: "var(--synTag)" },
-  { tag: [t.number, t.bool, t.null], color: "var(--synAttr)" },
-]);
+/** The blame gutter is added and removed without rebuilding the editor state. */
+const blameSlot = new Compartment();
 
 export interface EditorHandle {
   gotoLine(line: number, column?: number): void;
@@ -58,6 +46,8 @@ interface Props {
   initialText: string;
   diagnostics: Diagnostic[];
   manifest?: ComponentManifest | null;
+  /** Shows who last changed each line, when set. */
+  blame?: Blame | null;
   onChange(text: string): void;
   onSave(): void;
   onTopLineChange?(line: number): void;
@@ -126,6 +116,7 @@ export const Editor = forwardRef<EditorHandle, Props>(function Editor(props, ref
     const state = cached?.state ?? EditorState.create({
       doc: props.initialText,
       extensions: [
+        blameSlot.of([]), // first, so it sits left of the line numbers
         lineNumbers(),
         highlightActiveLineGutter(),
         foldGutter(),
@@ -206,6 +197,10 @@ export const Editor = forwardRef<EditorHandle, Props>(function Editor(props, ref
     },
     [],
   );
+
+  useEffect(() => {
+    view.current?.dispatch({ effects: blameSlot.reconfigure(props.blame ? blameGutter(props.blame) : []) });
+  }, [props.blame, props.docKey]);
 
   // Push diagnostics from Rust into the lint layer.
   useEffect(() => {

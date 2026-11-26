@@ -25,6 +25,8 @@
   --dangerFill: #fef0ee;
   --dangerEdge: #f6ccc7;
   --tip: #0f766e;
+  --added: #1f9d55;
+  --addedFill: #eaf8ef;
   /* Names team CSS and components may rely on. */
   --fg: var(--body);
   --bg: var(--card);
@@ -82,6 +84,10 @@ body {
 /* Cursor sync: the component under the editor cursor. */
 [data-tag].mdx-ide-active { position: relative; outline: 1.5px dashed var(--sync); outline-offset: 6px; border-radius: 10px; }
 [data-tag].mdx-ide-active::after { content: attr(data-label); position: absolute; top: -17px; right: 6px; padding: 1px 8px; border-radius: 6px; background: var(--heading); color: var(--card); font: 11px/1.6 "JetBrains Mono", ui-monospace, monospace; white-space: nowrap; pointer-events: none; }
+
+/* Rendered diff. */
+.mdx-ide-doc [data-line].mdx-ide-added { outline: 2px solid var(--added); outline-offset: 4px; border-radius: 6px; background-color: var(--addedFill); }
+.mdx-ide-doc [data-line].mdx-ide-removed { outline: 2px solid var(--danger); outline-offset: 4px; border-radius: 6px; background-color: var(--dangerFill); }
 
 .callout { --tone: var(--info); display: flex; gap: 12px; margin: 16px 0 0; padding: 14px 16px; border-radius: 12px; border: 1px solid var(--infoEdge); background: var(--infoFill); color: var(--infoBody); font-size: 14px; line-height: 1.55; }
 .mdx-ide-block > .callout { margin: 0; }
