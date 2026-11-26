@@ -78,6 +78,12 @@ pub async fn git_unstage(state: State<'_, AppState>, paths: Vec<String>) -> CmdR
     with_repo(state, move |repo, _| repo.unstage(&paths)).await
 }
 
+/// Revert unstaged changes. Untracked files are moved to the Trash.
+#[tauri::command]
+pub async fn git_discard(state: State<'_, AppState>, paths: Vec<String>) -> CmdResult<()> {
+    with_repo(state, move |repo, _| repo.discard(&paths)).await
+}
+
 #[tauri::command]
 pub async fn git_commit(state: State<'_, AppState>, message: String) -> CmdResult<String> {
     with_repo(state, move |repo, _| repo.commit(&message)).await

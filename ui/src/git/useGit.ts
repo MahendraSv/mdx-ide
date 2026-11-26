@@ -17,10 +17,11 @@ export function useGit(ws: WorkspaceInfo | null) {
     try {
       const next = await api.gitStatus();
       // A slower, older read must not replace a newer one.
-      if (mine !== sequence.current) return;
+      if (mine !== sequence.current) return next;
       setStatus(next);
       setError(null);
       setRevision((r) => r + 1);
+      return next;
     } catch (e) {
       if (mine === sequence.current) setError(String(e));
     }

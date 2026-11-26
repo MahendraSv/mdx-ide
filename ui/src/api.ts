@@ -107,6 +107,7 @@ export const api = {
   gitStatus: () => invoke<GitStatus | null>("git_status"),
   gitStage: (paths: string[]) => invoke<void>("git_stage", { paths }),
   gitUnstage: (paths: string[]) => invoke<void>("git_unstage", { paths }),
+  gitDiscard: (paths: string[]) => invoke<void>("git_discard", { paths }),
   gitCommit: (message: string) => invoke<string>("git_commit", { message }),
   gitBranches: () => invoke<Branch[]>("git_branches"),
   gitSwitch: (name: string) => invoke<void>("git_switch", { name }),

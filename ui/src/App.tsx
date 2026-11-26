@@ -1,7 +1,7 @@
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { confirm, open } from "@tauri-apps/plugin-dialog";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { api, onWorkspaceChanged, type Blame, type Branch, type Diagnostic, type DocumentAnalysis, type WorkspaceInfo } from "./api";
+import { api, onWorkspaceChanged, type Blame, type Branch, type ChangedFile, type Diagnostic, type DocumentAnalysis, type WorkspaceInfo } from "./api";
 import { Editor, type EditorHandle } from "./editor/Editor";
 import { canMove, Explorer, NewFileIcon, NewFolderIcon, type Draft, type Entry, type EntryKind } from "./panels/Explorer";
 import { Outline, Palette, Problems, Search } from "./panels/Panels";
@@ -9,7 +9,8 @@ import { CommandPalette, type PaletteCommand } from "./CommandPalette";
 import { FrontmatterPanel } from "./FrontmatterPanel";
 import { TabStrip } from "./TabStrip";
 import { DiffView, type DiffMode } from "./git/DiffView";
-import { GitPanel, pathsOf } from "./git/GitPanel";
+import { GitPanel, pathsOf, type RemoteActivity } from "./git/GitPanel";
+import { errorToast, Toast, type ToastMessage } from "./git/Toast";
 import { explorerMarks, workspacePath, type DiffTarget } from "./git/model";
 import { useGit } from "./git/useGit";
 import { Preview, type PreviewHandle } from "./Preview";
@@ -156,7 +157,10 @@ export default function App() {
   diffRef.current = diff;
   const [commitMessage, setCommitMessage] = useState("");
   const [gitBusy, setGitBusy] = useState(false);
-  const [gitActivity, setGitActivity] = useState<string | null>(null);
+  const [gitActivity, setGitActivity] = useState<RemoteActivity | null>(null);
+  /** The result of the last Git action. */
+  const [toast, setToast] = useState<ToastMessage | null>(null);
+  const toastId = useRef(0);
   const [branches, setBranches] = useState<Branch[] | null>(null);
   const [blameOn, setBlameOn] = useState(false);
   const [blame, setBlame] = useState<{ path: string; value: Blame } | null>(null);
@@ -373,6 +377,7 @@ export default function App() {
       setInfo(null);
       setCommitMessage("");
       setBlame(null);
+      setToast(null);
       setTab("files");
       const first =
         info.files.find((f) => /(^|\/)(intro|index|readme)\.mdx$/i.test(f.path) && f.path.split("/").length <= 2) ?? info.files[0];
@@ -535,7 +540,7 @@ export default function App() {
         (e) => {
           if (!current) return;
           setBlameOn(false);
-          setError(`Blame failed: ${String(e)}`);
+          setToast(errorToast(++toastId.current, "Blame failed", e));
         },
       );
     }, blame?.path === path ? 600 : 0);
@@ -545,46 +550,58 @@ export default function App() {
     };
   }, [blameOn, path, typed, git.revision]);
 
-  /** Run a git command, then show the new state. Errors are what git itself said. */
-  const gitAction = async (work: () => Promise<void>) => {
+  const succeeded = (title: string, detail: string) => setToast({ id: ++toastId.current, kind: "ok", title, detail });
+  const failed = (title: string, error: unknown) => setToast(errorToast(++toastId.current, title, error));
+  const count = (n: number, noun: string) => `${n} ${noun}${n === 1 ? "" : "s"}`;
+
+  /** Run a git command, then show the new state. A failure is reported in git's own words. */
+  const gitAction = async (failure: string, work: () => Promise<void>) => {
     if (gitBusy) return;
     setGitBusy(true);
-    setError(null);
+    setToast(null);
     try {
       await work();
     } catch (e) {
-      setError(String(e));
+      failed(failure, e);
     } finally {
       await git.refresh();
       setGitBusy(false);
     }
   };
 
-  const stage = (paths: string[]) => void gitAction(() => api.gitStage(paths));
-  const unstage = (paths: string[]) => void gitAction(() => api.gitUnstage(paths));
+  const stage = (paths: string[]) => void gitAction("Couldn’t stage", () => api.gitStage(paths));
+  const unstage = (paths: string[]) => void gitAction("Couldn’t unstage", () => api.gitUnstage(paths));
 
   const commit = () =>
-    void gitAction(async () => {
+    void gitAction("Commit failed", async () => {
       const unsaved = [...buffers.current.values()].filter((b) => b.text !== b.saved).length;
       if (
         unsaved &&
         !(await confirm(`${unsaved} open ${unsaved === 1 ? "file has" : "files have"} unsaved changes that will not be in this commit. Commit anyway?`, { title: "Unsaved changes", okLabel: "Commit", cancelLabel: "Cancel" }))
       )
         return;
-      const id = await api.gitCommit(commitMessage);
+      const files = git.status?.files.filter((f) => f.staged).length ?? 0;
+      const branch = git.status?.branch;
+      await api.gitCommit(commitMessage);
       setCommitMessage("");
-      setInfo(`Committed ${id}.`);
+      succeeded(branch ? `Committed to ${branch}` : "Committed", `${count(files, "file")} changed${git.status?.remotes.length ? " · ready to push" : ""}`);
     });
 
-  /** After a branch switch: reload open files, and close those the branch does not have. */
-  const reloadFromDisk = async () => {
+  /**
+   * Bring open files up to date with the disk, closing those that no longer exist. Without
+   * `only`, files whose saved contents are unchanged keep their unsaved edits and history;
+   * with it, exactly those files are reloaded, dropping whatever was in the editor.
+   */
+  const reloadFromDisk = async (only?: ReadonlySet<string>) => {
     const gone: string[] = [];
     for (const [p, buffer] of [...buffers.current]) {
+      if (only && !only.has(p)) continue;
       try {
         const contents = await api.readFile(p);
-        if (contents === buffer.saved) continue;
+        if (contents === (only ? buffer.text : buffer.saved) && contents === buffer.saved) continue;
         editor.current?.forget(String(buffer.version));
         Object.assign(buffer, { text: contents, saved: contents, version: ++nextVersion.current, code: null });
+        markDirty(p, false);
       } catch {
         gone.push(p);
       }
@@ -598,63 +615,84 @@ export default function App() {
     if (active && buffer) refresh(active, buffer.text);
   };
 
+  /** Revert unstaged changes, after asking: this cannot be undone. */
+  const discard = (files: ChangedFile[]) =>
+    void gitAction("Couldn’t discard", async () => {
+      const status = git.status;
+      const targets = files.filter((f) => f.unstaged && !f.conflicted);
+      if (!status || !targets.length) return;
+      const open = new Set(targets.map((f) => workspacePath(status, f.path)).filter((p): p is string => p !== null));
+      const fresh = targets.filter((f) => f.unstaged === "U" || f.unstaged === "A").length;
+      const unsaved = [...open].filter((p) => dirtyPaths.has(p)).length;
+      const what = targets.length === 1 ? `“${targets[0].path}”` : count(targets.length, "file");
+      const lines = [`Discard changes to ${what}? This can’t be undone.`];
+      if (fresh) lines.push(fresh === targets.length ? `${targets.length === 1 ? "It is" : "They are"} new to Git, so ${targets.length === 1 ? "it" : "they"} will be moved to the Trash.` : `${count(fresh, "new file")} will be moved to the Trash.`);
+      if (unsaved) lines.push(`Unsaved edits in ${count(unsaved, "open file")} will also be lost.`);
+      if (!(await confirm(lines.join("\n\n"), { title: "Discard changes", kind: "warning", okLabel: "Discard", cancelLabel: "Cancel" }))) return;
+      await api.gitDiscard(targets.map((f) => f.path));
+      await reloadFromDisk(open);
+      succeeded("Discarded changes", count(targets.length, "file"));
+    });
+
   const switchBranch = (name: string) =>
-    void gitAction(async () => {
+    void gitAction("Couldn’t switch branch", async () => {
       // Saving afterwards would write this branch's text over the other branch's file.
       const unsaved = [...buffers.current].filter(([, b]) => b.text !== b.saved).map(([p]) => p);
       if (unsaved.length) throw `Save or close these files before switching branches: ${unsaved.join(", ")}`;
       await api.gitSwitch(name);
       setDiff(null);
       await reloadFromDisk();
-      setInfo(`Switched to ${name}.`);
+      succeeded(`Switched to ${name}`, "Open files are up to date");
     });
 
   const createBranch = (name: string) =>
-    void gitAction(async () => {
+    void gitAction("Couldn’t create the branch", async () => {
       await api.gitCreateBranch(name);
-      setInfo(`Created and switched to ${name}.`);
+      succeeded(`Created ${name}`, "Switched to the new branch");
     });
 
-  /** A command that talks to the remote, with its progress shown in the panel. */
-  const remoteAction = (activity: string, work: () => Promise<void>) =>
-    void gitAction(async () => {
-      setGitActivity(activity);
-      setInfo(null);
+  /** A command that talks to the remote, with a spinner on its button meanwhile. */
+  const remoteAction = (kind: RemoteActivity, failure: string, work: () => Promise<void>) =>
+    void gitAction(failure, async () => {
+      setGitActivity(kind);
       try {
         await work();
       } finally {
         setGitActivity(null);
       }
     });
-  const plural = (n: number) => `${n} ${n === 1 ? "commit" : "commits"}`;
 
   const fetchRemote = () =>
-    remoteAction("Fetching…", async () => {
+    remoteAction("fetch", "Fetch failed", async () => {
       await api.gitFetch();
-      setInfo("Fetched from the remote.");
+      const behind = (await git.refresh())?.behind ?? 0;
+      succeeded("Fetched", behind ? `${count(behind, "commit")} to pull` : "Nothing new to pull");
     });
 
   const pull = () =>
-    remoteAction("Pulling…", async () => {
+    remoteAction("pull", "Pull failed", async () => {
       // Pulling changes files; saving afterwards would undo what arrived.
       const unsaved = [...buffers.current].filter(([, b]) => b.text !== b.saved).map(([p]) => p);
       if (unsaved.length) throw `Save or close these files before pulling: ${unsaved.join(", ")}`;
-      const count = await api.gitPull();
-      if (count) await reloadFromDisk();
-      setInfo(count ? `Pulled ${plural(count)}.` : "Already up to date.");
+      const from = git.status?.upstream ?? "the remote";
+      const received = await api.gitPull();
+      if (received) await reloadFromDisk();
+      succeeded(received ? `Pulled ${count(received, "commit")}` : "Already up to date", `from ${from} · just now`);
     });
 
   const push = () =>
-    remoteAction("Pushing…", async () => {
+    remoteAction("push", "Push failed", async () => {
+      const branch = git.status?.branch;
       const { target, published, commits } = await api.gitPush();
-      setInfo(published ? `Published the branch to ${target}.` : `Pushed ${plural(commits)} to ${target}.`);
+      if (published) succeeded(`Published ${branch}`, `to ${target}`);
+      else succeeded(`Pushed ${count(commits, "commit")}`, `to ${target}`);
     });
 
   const openBranches = async () => {
     try {
       setBranches(await api.gitBranches());
     } catch (e) {
-      setError(String(e));
+      failed("Couldn’t list branches", e);
     }
   };
 
@@ -846,6 +884,11 @@ export default function App() {
     { id: "side-components", label: "Show Components", run: () => showSide("components") },
   ];
 
+  const changeCount = git.status?.files.length ?? 0;
+  // One toast: at the bottom of the Source Control panel, or of the window when that is hidden.
+  const panelShown = sidebarOpen && tab === "git" && !!ws;
+  const toastView = <Toast toast={toast} onDismiss={() => setToast(null)} />;
+
   const railBtn = (t: SideTab, label: string, icon: React.ReactNode) => (
     // Clicking the active icon again hides the sidebar.
     <button type="button" className="rail-btn" aria-label={label} aria-pressed={sidebarOpen && tab === t} onClick={() => (sidebarOpen && tab === t ? setSidebarOpen(false) : showSide(t))}>
@@ -871,12 +914,6 @@ export default function App() {
         </button>
 
         <div className="title-right">
-          {git.status && (
-            <button type="button" className="chip-pill branch-chip" aria-label={`Branch ${git.status.branch ?? git.status.head}. Switch or create a branch`} onClick={() => void openBranches()}>
-              <Icon size={13} sw={2}><circle cx="6" cy="5" r="2" /><circle cx="6" cy="19" r="2" /><circle cx="18" cy="8" r="2" /><path d="M6 7v10M18 10c0 4-6 3-12 7" /></Icon>
-              <span>{git.status.branch ?? git.status.head}</span>
-            </button>
-          )}
           <button type="button" className="btn-ghost" onClick={() => void openFolder()}>Open folder…</button>
           <button type="button" className="btn-ghost" onClick={save} disabled={!dirty}>Save</button>
           <div role="group" aria-label="Theme" className="group">
@@ -920,10 +957,10 @@ export default function App() {
           {railBtn("components", "Components", <Icon><rect x="3" y="3" width="7" height="7" rx="1.5" /><rect x="14" y="3" width="7" height="7" rx="1.5" /><rect x="3" y="14" width="7" height="7" rx="1.5" /><rect x="14" y="14" width="7" height="7" rx="3.5" /></Icon>)}
           {railBtn(
             "git",
-            "Source control",
+            changeCount ? `Source control, ${changeCount} ${changeCount === 1 ? "change" : "changes"}` : "Source control",
             <>
               <Icon><circle cx="6" cy="5" r="2" /><circle cx="6" cy="19" r="2" /><circle cx="18" cy="8" r="2" /><path d="M6 7v10M18 10c0 4-6 3-12 7" /></Icon>
-              {!!git.status?.files.length && <span className="rail-badge">{git.status.files.length > 99 ? "99+" : git.status.files.length}</span>}
+              {changeCount > 0 && <span className="rail-badge" aria-hidden="true">{changeCount > 99 ? "99+" : changeCount}</span>}
             </>,
           )}
         </nav>
@@ -943,12 +980,17 @@ export default function App() {
                   </button>
                 </>
               )}
-              <button type="button" className="icon-btn" aria-label="Hide sidebar" title="Hide sidebar (⌘B)" onClick={() => setSidebarOpen(false)}>
-                <Icon size={14} sw={2}><path d="m11 7-5 5 5 5M18 7l-5 5 5 5" /></Icon>
+              {ws && tab === "git" && (
+                <button type="button" className="icon-btn" aria-label="Refresh status" title="Refresh status" onClick={() => void git.refresh()}>
+                  <Icon size={14} sw={2}><path d="M20 11a8 8 0 1 0-2.3 5.7M20 4v7h-7" /></Icon>
+                </button>
+              )}
+              <button type="button" className="icon-btn" aria-label="Collapse sidebar" title="Collapse sidebar (⌘B)" onClick={() => setSidebarOpen(false)}>
+                <Icon size={14} sw={2}><path d="m11 17-5-5 5-5M18 17l-5-5 5-5" /></Icon>
               </button>
             </span>
           </div>
-          <div className="side-scroll">
+          <div className={`side-scroll${tab === "git" ? " fill" : ""}`}>
             {!ws ? (
               <div className="empty">
                 <p>Open your docs repository to start.</p>
@@ -988,11 +1030,18 @@ export default function App() {
                 busy={gitBusy}
                 activity={gitActivity}
                 selected={diff}
+                toast={panelShown ? toastView : null}
                 onMessage={setCommitMessage}
                 onStage={stage}
                 onUnstage={unstage}
+                onDiscard={discard}
                 onCommit={commit}
-                onOpen={setDiff}
+                onOpenDiff={setDiff}
+                onOpenFile={(file) => {
+                  const target = git.status && workspacePath(git.status, file.path);
+                  if (target) void openFile(target);
+                }}
+                canOpenFile={(file, staged) => !!git.status && workspacePath(git.status, file.path)?.endsWith(".mdx") === true && (staged ? file.staged : file.unstaged) !== "D"}
                 onBranches={() => void openBranches()}
                 onRefresh={() => void git.refresh()}
                 onFetch={fetchRemote}
@@ -1254,7 +1303,15 @@ export default function App() {
         />
       )}
 
+      {!panelShown && <div className="toast-floating">{toastView}</div>}
+
       <footer className="status">
+        {git.status && (
+          <button type="button" className="status-branch" aria-label={`Branch ${git.status.branch ?? git.status.head}. Switch or create a branch`} title="Switch or create a branch" disabled={gitBusy} onClick={() => void openBranches()}>
+            <Icon size={13} sw={2}><circle cx="6" cy="5" r="2" /><circle cx="6" cy="19" r="2" /><circle cx="18" cy="8" r="2" /><path d="M6 7v10M18 10c0 4-6 3-12 7" /></Icon>
+            <span>{git.status.branch ?? git.status.head}</span>
+          </button>
+        )}
         <span><span className={`ok-dot${errors ? " bad" : ""}`} />{problems} {problems === 1 ? "problem" : "problems"}</span>
         {path && <span>Ln {cursor.line}, Col {cursor.column}</span>}
         {path && <span>MDX · UTF-8 · LF</span>}
