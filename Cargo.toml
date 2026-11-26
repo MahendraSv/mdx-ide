@@ -1,0 +1,56 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/mdx-core",
+    "crates/mdx-syntax",
+    "crates/mdx-compile",
+    "crates/mdx-intel",
+    "crates/mdx-workspace",
+    "src-tauri",
+]
+default-members = [
+    "crates/mdx-core",
+    "crates/mdx-syntax",
+    "crates/mdx-compile",
+    "crates/mdx-intel",
+    "crates/mdx-workspace",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.80"
+
+[workspace.dependencies]
+# internal
+mdx-core = { path = "crates/mdx-core" }
+mdx-syntax = { path = "crates/mdx-syntax" }
+mdx-compile = { path = "crates/mdx-compile" }
+mdx-intel = { path = "crates/mdx-intel" }
+mdx-workspace = { path = "crates/mdx-workspace" }
+
+# MDX toolchain (keep these pinned: mdxjs pins its own swc_core, don't add a second SWC)
+markdown = "=1.0.0"
+mdxjs = "=1.0.4"
+
+# general
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+serde_yaml = "0.9"
+toml = "0.8"
+thiserror = "2"
+anyhow = "1"
+jsonschema = { version = "0.63", default-features = false }
+ignore = "0.4"
+notify-debouncer-mini = "0.8"
+regex = "1"
+
+[profile.release]
+lto = "thin"
+codegen-units = 1
+strip = true
+
+# mdxjs 1.0.4 pins swc_core 27 → swc_common 12.0.1, which doesn't compile with
+# serde >= 1.0.220. One-line patch, see third_party/swc_common/src/private/mod.rs.
+[patch.crates-io]
+swc_common = { path = "third_party/swc_common" }

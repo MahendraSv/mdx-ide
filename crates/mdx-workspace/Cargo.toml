@@ -1,0 +1,22 @@
+[package]
+name = "mdx-workspace"
+description = "Workspace: team config (.mdx-ide/), file discovery, search, atomic saves, per-document analysis."
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+mdx-core.workspace = true
+mdx-syntax.workspace = true
+mdx-intel.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+toml.workspace = true
+ignore.workspace = true
+regex.workspace = true
+thiserror.workspace = true
+globset = "0.4"
+trash = "5"
+
+[dev-dependencies]
+tempfile = "3"
+mdx-compile.workspace = true

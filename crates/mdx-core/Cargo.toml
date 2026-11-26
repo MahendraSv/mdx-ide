@@ -1,0 +1,8 @@
+[package]
+name = "mdx-core"
+description = "Shared types for MDX IDE: positions, diagnostics, outline, links."
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+serde.workspace = true

@@ -1,0 +1,19 @@
+{
+  "name": "@mdx-ide/manifest-gen",
+  "private": true,
+  "type": "module",
+  "description": "Generates .mdx-ide/component-manifest.json from your design system's TypeScript components.",
+  "bin": { "mdx-ide-manifest": "./generate.mjs" },
+  "scripts": {
+    "start": "node generate.mjs",
+    "example": "node generate.mjs --src 'example/**/*.tsx' --package @team/ui --out example/component-manifest.json"
+  },
+  "dependencies": {
+    "fast-glob": "^3.3.3",
+    "react-docgen-typescript": "^2.4.0",
+    "typescript": "~5.9.3"
+  },
+  "devDependencies": {
+    "@types/react": "^19.3.0"
+  }
+}

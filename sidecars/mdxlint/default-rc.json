@@ -1,0 +1,4 @@
+{
+  "plugins": ["remark-frontmatter", "remark-gfm"],
+  "settings": { "bullet": "-", "emphasis": "_", "listItemIndent": "one", "fences": true, "rule": "-" }
+}

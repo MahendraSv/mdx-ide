@@ -1,0 +1,47 @@
+{
+  "package": "@team/ui",
+  "components": [
+    {
+      "name": "Callout",
+      "category": "Feedback",
+      "description": "Highlighted note, tip or warning box.",
+      "acceptsChildren": true,
+      "props": [
+        { "name": "type", "type": "\"info\" | \"warning\" | \"danger\" | \"tip\"", "required": true, "values": ["info", "warning", "danger", "tip"], "description": "Visual style and semantics." },
+        { "name": "title", "type": "string", "description": "Optional bold heading." }
+      ]
+    },
+    {
+      "name": "Badge",
+      "category": "Feedback",
+      "description": "Small inline status label.",
+      "acceptsChildren": true,
+      "snippet": "Badge tone=\"${1:new}\">${2:New}</Badge>",
+      "props": [
+        { "name": "tone", "type": "\"neutral\" | \"new\" | \"beta\" | \"deprecated\"", "values": ["neutral", "new", "beta", "deprecated"], "default": "neutral" }
+      ]
+    },
+    {
+      "name": "Tabs",
+      "category": "Layout",
+      "description": "Tabbed content. Children must be <Tab> elements.",
+      "acceptsChildren": true,
+      "snippet": "Tabs>\n  <Tab label=\"${1:npm}\">\n    ${2}\n  </Tab>\n  <Tab label=\"${3:pnpm}\">\n    ${4}\n  </Tab>\n</Tabs>",
+      "props": []
+    },
+    {
+      "name": "Tab",
+      "category": "Layout",
+      "description": "One tab inside <Tabs>.",
+      "acceptsChildren": true,
+      "props": [{ "name": "label", "type": "string", "required": true, "description": "Tab title." }]
+    },
+    {
+      "name": "Steps",
+      "category": "Layout",
+      "description": "Numbered step-by-step section. Use ### headings for each step.",
+      "acceptsChildren": true,
+      "props": []
+    }
+  ]
+}

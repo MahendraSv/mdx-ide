@@ -1,0 +1,29 @@
+[package]
+name = "mdx-ide"
+description = "MDX IDE — a desktop editor for MDX, built for teams"
+version.workspace = true
+edition.workspace = true
+
+[lib]
+name = "mdx_ide_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2.12", features = [] }
+tauri-plugin-dialog = "2"
+serde.workspace = true
+serde_json.workspace = true
+notify-debouncer-mini.workspace = true
+mime_guess = "2"
+
+mdx-core.workspace = true
+mdx-compile.workspace = true
+mdx-intel.workspace = true
+mdx-workspace.workspace = true
+
+[features]
+# Used by `tauri build`; serves the bundled frontend instead of the dev server.
+custom-protocol = ["tauri/custom-protocol"]

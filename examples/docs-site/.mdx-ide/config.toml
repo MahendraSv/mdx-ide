@@ -1,0 +1,39 @@
+# MDX IDE team configuration — commit this folder to your docs repo.
+# Everyone who opens the repo gets the same checks, schemas and components.
+
+# Where MDX pages live. Root-relative links like `/guides/setup` resolve here.
+content_dirs = ["docs"]
+
+# Where root-relative assets like `/img/logo.png` live
+# (Docusaurus: "static", Next.js / Astro: "public").
+static_dirs = ["static"]
+
+# Pasted / dropped images are copied here.
+assets_dir = "static/img"
+
+# Generated from the design system: `pnpm manifest` (see sidecars/manifest-gen).
+component_manifest = ".mdx-ide/component-manifest.json"
+
+# Frontmatter schemas, matched by glob (first match wins).
+[[schemas]]
+files = "docs/blog/**/*.mdx"
+schema = ".mdx-ide/schemas/blog.schema.json"
+template = ".mdx-ide/templates/blog-post.mdx"
+
+[[schemas]]
+files = "docs/**/*.mdx"
+schema = ".mdx-ide/schemas/doc.schema.json"
+template = ".mdx-ide/templates/doc.mdx"
+
+[preview]
+site = "docusaurus"            # docusaurus | nextjs | astro | generic
+# components_bundle = "node_modules/@team/ui/dist/mdx-ide.js"   # ESM build of your design system
+# css = ["src/css/custom.css"]
+
+[lint]
+check_links = true
+check_components = true
+a11y = true
+format_on_save = true      # run mdxlint on ⌘S using .mdx-ide/mdxlintrc.json
+mdxlint_rules = true       # show remark-lint rules from .mdx-ide/mdxlint-rules.json in Problems
+# mdxlint_config = ".mdx-ide/mdxlintrc.json"   # override the format-on-save rc path

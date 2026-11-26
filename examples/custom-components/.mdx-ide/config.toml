@@ -1,0 +1,11 @@
+# Sample: a docs folder with its own preview components.
+content_dirs = ["docs"]
+component_manifest = ".mdx-ide/component-manifest.json"
+
+[preview]
+components_bundle = ".mdx-ide/components.js"   # ESM build of your components
+css = [".mdx-ide/components.css"]              # their styles
+
+[lint]
+format_on_save = false
+mdxlint_rules = false

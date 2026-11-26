@@ -1,0 +1,9 @@
+[package]
+name = "mdx-syntax"
+description = "Parse MDX with markdown-rs and extract outline, links, components, frontmatter."
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+mdx-core.workspace = true
+markdown.workspace = true

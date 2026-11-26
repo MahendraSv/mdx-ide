@@ -1,0 +1,4 @@
+.demo-stat { display: flex; flex-direction: column; padding: 16px 20px; border-radius: 12px; border: 2px solid #7c3aed; background: #f5f0ff; }
+.demo-stat-value { font: 700 30px/1.2 "Space Grotesk", sans-serif; color: #5b21b6; }
+.demo-stat-label { font-size: 13px; color: #6d5a8d; }
+.demo-counter { padding: 10px 18px; border: 0; border-radius: 999px; background: #7c3aed; color: #ffffff; font: 600 14px/1.4 "Inter", sans-serif; cursor: pointer; }

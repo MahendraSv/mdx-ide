@@ -1,0 +1,12 @@
+{
+  "plugins": [
+    "remark-frontmatter",
+    "remark-gfm",
+    "remark-preset-lint-recommended",
+    ["remark-lint-heading-increment", true],
+    ["remark-lint-no-duplicate-headings", true],
+    ["remark-lint-no-multiple-toplevel-headings", true],
+    ["remark-lint-no-undefined-references", { "allowShortcutLink": true }],
+    ["remark-lint-no-heading-punctuation", true]
+  ]
+}

@@ -1,0 +1,98 @@
+// Typed wrappers around the Rust IPC commands (src-tauri/src/commands.rs).
+// Types mirror crates/mdx-core. TODO: generate these with tauri-specta.
+
+import { invoke } from "@tauri-apps/api/core";
+import { listen, type UnlistenFn } from "@tauri-apps/api/event";
+
+export interface Point { line: number; column: number; offset: number }
+export interface Range { start: Point; end: Point }
+export type Severity = "error" | "warning" | "info";
+
+export interface Diagnostic {
+  range: Range | null;
+  severity: Severity;
+  source: "syntax" | "compile" | "components" | "frontmatter" | "links" | "a11y" | "mdxlint";
+  rule: string;
+  message: string;
+}
+
+export interface OutlineItem { depth: number; text: string; slug: string; range: Range | null }
+
+export interface DocumentAnalysis {
+  outline: OutlineItem[];
+  links: { kind: string; url: string; range: Range | null }[];
+  components: { name: string | null; inline: boolean; hasSpread: boolean; range: Range | null }[];
+  frontmatter: { format: "yaml" | "toml"; raw: string; range: Range | null } | null;
+  importedNames: string[];
+  diagnostics: Diagnostic[];
+  wordCount: number;
+}
+
+export interface PropSpec { name: string; type: string; required: boolean; values: string[]; description: string }
+export interface ComponentSpec {
+  name: string;
+  description: string;
+  category?: string;
+  props: PropSpec[];
+  acceptsChildren: boolean;
+  snippet?: string;
+}
+export interface ComponentManifest { package?: string; components: ComponentSpec[] }
+
+export interface FileEntry { path: string; size: number }
+export interface WorkspaceInfo {
+  root: string;
+  files: FileEntry[];
+  dirs: string[];
+  manifest: ComponentManifest | null;
+  configProblems: string[];
+  formatOnSave: boolean;
+  mdxlintRules: boolean;
+}
+
+export interface CompletionItem {
+  label: string;
+  type: string;
+  detail: string | null;
+  info: string | null;
+  snippet: string | null;
+}
+
+export interface SearchHit { path: string; line: number; column: number; preview: string }
+
+export type PreviewResult = { status: "ok"; code: string } | { status: "error"; diagnostic: Diagnostic };
+
+export interface RenameReport {
+  path: string;
+  /** Pages whose links were updated; `disk` / `buffer` carry new saved / unsaved text. */
+  files: { path: string; links: number; disk: string | null; buffer: string | null }[];
+  skipped: string[];
+}
+
+export const api = {
+  initialFolder: () => invoke<string | null>("initial_folder"),
+  openWorkspace: (path: string) => invoke<WorkspaceInfo>("open_workspace", { path }),
+  listFiles: () => invoke<WorkspaceInfo>("list_files"),
+  createFile: (path: string, date: string) => invoke<string>("create_file", { path, date }),
+  createFolder: (path: string) => invoke<string>("create_folder", { path }),
+  renameEntry: (from: string, to: string, unsaved: Record<string, string>) => invoke<RenameReport>("rename_entry", { from, to, unsaved }),
+  trashEntry: (path: string) => invoke<void>("trash_entry", { path }),
+  entryFileCount: (path: string) => invoke<number>("entry_file_count", { path }),
+  readFile: (path: string) => invoke<string>("read_file", { path }),
+  writeFile: (path: string, contents: string) => invoke<void>("write_file", { path, contents }),
+  analyze: (path: string, source: string) => invoke<DocumentAnalysis>("analyze", { path, source }),
+  compilePreview: (path: string, source: string) => invoke<PreviewResult>("compile_preview", { path, source }),
+  search: (query: string, opts: { regex?: boolean; caseSensitive?: boolean } = {}) =>
+    invoke<SearchHit[]>("search", { options: { query, ...opts } }),
+  completeComponents: () => invoke<CompletionItem[]>("complete_components"),
+  completeProps: (component: string, already: string[]) => invoke<CompletionItem[]>("complete_props", { component, already }),
+  completePropValues: (component: string, prop: string) => invoke<CompletionItem[]>("complete_prop_values", { component, prop }),
+  saveAsset: (path: string, fileName: string, bytes: number[]) => invoke<string>("save_asset", { path, fileName, bytes }),
+  lintMdx: (path: string, source: string) => invoke<Diagnostic[]>("lint_mdx", { path, source }),
+  formatMdx: (path: string, source: string) => invoke<string>("format_mdx", { path, source }),
+  frontmatterSchema: (path: string) => invoke<unknown | null>("frontmatter_schema", { path }),
+};
+
+export function onWorkspaceChanged(cb: (e: { paths: string[]; configChanged: boolean }) => void): Promise<UnlistenFn> {
+  return listen<{ paths: string[]; configChanged: boolean }>("workspace://changed", (e) => cb(e.payload));
+}

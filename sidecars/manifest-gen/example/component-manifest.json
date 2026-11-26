@@ -1,0 +1,54 @@
+{
+  "$generated": "2026-11-26T10:53:35.861Z",
+  "package": "@team/ui",
+  "components": [
+    {
+      "name": "Badge",
+      "description": "Small inline status label.",
+      "category": "Feedback",
+      "acceptsChildren": true,
+      "snippet": "Badge tone=\"${1:new}\">${2:New}</Badge>",
+      "props": [
+        {
+          "name": "tone",
+          "type": "\"neutral\" | \"new\" | \"beta\" | \"deprecated\"",
+          "required": false,
+          "default": "neutral",
+          "values": [
+            "neutral",
+            "new",
+            "beta",
+            "deprecated"
+          ],
+          "description": ""
+        }
+      ]
+    },
+    {
+      "name": "Callout",
+      "description": "Highlighted note, tip or warning box.",
+      "category": "Feedback",
+      "acceptsChildren": true,
+      "props": [
+        {
+          "name": "type",
+          "type": "\"info\" | \"warning\" | \"danger\" | \"tip\"",
+          "required": true,
+          "values": [
+            "info",
+            "warning",
+            "danger",
+            "tip"
+          ],
+          "description": "Visual style and semantics."
+        },
+        {
+          "name": "title",
+          "type": "string",
+          "required": false,
+          "description": "Optional bold heading."
+        }
+      ]
+    }
+  ]
+}

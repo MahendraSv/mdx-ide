@@ -1,0 +1,12 @@
+[package]
+name = "mdx-compile"
+description = "Compile MDX to ESM for the live preview (mdxjs-rs) with IDE-specific hast transforms."
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+mdx-core.workspace = true
+mdx-syntax.workspace = true
+markdown.workspace = true
+mdxjs.workspace = true
+serde.workspace = true

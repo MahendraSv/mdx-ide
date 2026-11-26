@@ -1,0 +1,22 @@
+{
+  "package": "@demo/ui",
+  "components": [
+    {
+      "name": "Stat",
+      "category": "Demo",
+      "description": "A large number with a label.",
+      "acceptsChildren": false,
+      "props": [
+        { "name": "value", "type": "string", "required": true, "description": "The number to show." },
+        { "name": "label", "type": "string", "required": true, "description": "What the number measures." }
+      ]
+    },
+    {
+      "name": "Counter",
+      "category": "Demo",
+      "description": "A button that counts clicks.",
+      "acceptsChildren": false,
+      "props": [{ "name": "start", "type": "string", "description": "Starting count." }]
+    }
+  ]
+}
