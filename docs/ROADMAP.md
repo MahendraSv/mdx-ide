@@ -25,7 +25,7 @@
 
 ## Phase 2: v1 (8–12 weeks)
 
-- ✅ Git (`crates/mdx-git`, driving the `git` CLI for reads and writes): status, stage / unstage / commit, fetch / fast-forward pull / push (never forced), create and switch branches, source and rendered diff, blame. ☐ Merge / rebase, discard changes, conflict resolution UI
+- ✅ Git (`crates/mdx-git`, driving the `git` CLI for reads and writes): status, stage / unstage / commit, fetch / fast-forward pull / push (never forced), create and switch branches, source and rendered diff, blame. ✅ discard (new files go to the Trash). ☐ Merge / rebase, conflict resolution UI
 - Rich/WYSIWYG mode (MDXEditor with `jsxPlugin` property editors)
 - Slash commands from the manifest (`/callout`, `/tabs`, `/image`) and the snippet library
 - Docs-site-aware preview (Docusaurus / Next.js / Astro theme, global CSS, MDX component map) and a "site-accurate" Node compile mode

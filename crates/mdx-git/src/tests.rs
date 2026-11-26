@@ -378,3 +378,85 @@ fn explains_why_it_cannot_talk_to_a_remote() {
     git(dir.path(), &["remote", "set-url", "origin", "/nonexistent/repo"]);
     assert!(repo.fetch().is_err());
 }
+
+/// Stand-in for the Trash, so tests do not fill the developer's.
+fn remove(path: &Path) -> Result<()> {
+    fs::remove_file(path).map_err(|e| GitError::Failed(e.to_string()))
+}
+
+#[test]
+fn discard_restores_from_the_index_and_removes_only_new_files() {
+    let (d, repo) = empty();
+    write(d.path(), "a.mdx", "committed\n");
+    write(d.path(), "gone.mdx", "keep me\n");
+    repo.stage(&paths(&["a.mdx", "gone.mdx"])).unwrap();
+    repo.commit("init").unwrap();
+    write(d.path(), "a.mdx", "staged\n");
+    repo.stage(&paths(&["a.mdx"])).unwrap();
+    write(d.path(), "a.mdx", "unstaged\n");
+    fs::remove_file(d.path().join("gone.mdx")).unwrap();
+    write(d.path(), "dir/new [1].mdx", "new\n");
+    write(d.path(), "intent.mdx", "intent\n");
+    git(d.path(), &["add", "-N", "intent.mdx"]);
+
+    let mut removed = Vec::new();
+    repo.discard_with(&paths(&["a.mdx", "gone.mdx", "dir/new [1].mdx", "intent.mdx"]), |p| {
+        removed.push(p.file_name().unwrap().to_string_lossy().into_owned());
+        remove(p)
+    })
+    .unwrap();
+
+    // The staged version is what comes back, and it stays staged.
+    assert_eq!(fs::read_to_string(d.path().join("a.mdx")).unwrap(), "staged\n");
+    assert_eq!(fs::read_to_string(d.path().join("gone.mdx")).unwrap(), "keep me\n");
+    assert_eq!(removed, vec!["new [1].mdx", "intent.mdx"]);
+    assert_eq!(summary(&repo), vec![("a.mdx".into(), Some('M'), None)]);
+}
+
+#[test]
+fn discard_checks_everything_before_touching_anything() {
+    let (d, repo) = empty();
+    write(d.path(), "a.mdx", "committed\n");
+    repo.stage(&paths(&["a.mdx"])).unwrap();
+    repo.commit("init").unwrap();
+    write(d.path(), "a.mdx", "work\n");
+    write(d.path(), "new.mdx", "new\n");
+    // A nested repository appears as an untracked folder.
+    fs::create_dir(d.path().join("nested")).unwrap();
+    git(&d.path().join("nested"), &["init", "-q"]);
+    write(d.path(), "nested/x.mdx", "x\n");
+
+    for bad in ["clean-or-missing.mdx", "../a.mdx", ".git/config", "nested/", ""] {
+        let result = repo.discard_with(&paths(&["a.mdx", "new.mdx", bad]), |_| panic!("nothing may be removed"));
+        assert!(result.is_err(), "{bad:?}");
+        assert_eq!(fs::read_to_string(d.path().join("a.mdx")).unwrap(), "work\n", "{bad:?}");
+    }
+    assert!(d.path().join("new.mdx").exists());
+}
+
+#[cfg(unix)]
+#[test]
+fn discard_never_removes_through_a_symlink_or_a_conflict() {
+    let (d, repo) = empty();
+    write(d.path(), "a.mdx", "base\n");
+    repo.stage(&paths(&["a.mdx"])).unwrap();
+    repo.commit("base").unwrap();
+    let outside = tempfile::tempdir().unwrap();
+    write(outside.path(), "precious.mdx", "p\n");
+    std::os::unix::fs::symlink(outside.path(), d.path().join("link")).unwrap();
+    assert!(repo.discard_with(&paths(&["link/precious.mdx"]), |_| panic!("outside")).is_err());
+    // The link itself is an untracked file and may go; its target stays.
+    repo.discard_with(&paths(&["link"]), remove).unwrap();
+    assert!(outside.path().join("precious.mdx").exists());
+
+    repo.create_branch("other").unwrap();
+    write(d.path(), "a.mdx", "theirs\n");
+    repo.stage(&paths(&["a.mdx"])).unwrap();
+    repo.commit("theirs").unwrap();
+    repo.switch("main").unwrap();
+    write(d.path(), "a.mdx", "ours\n");
+    repo.stage(&paths(&["a.mdx"])).unwrap();
+    repo.commit("ours").unwrap();
+    assert!(!Command::new("git").current_dir(d.path()).args(["merge", "other"]).output().unwrap().status.success());
+    assert!(repo.discard(&paths(&["a.mdx"])).unwrap_err().to_string().contains("conflict"));
+}

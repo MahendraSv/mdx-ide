@@ -9,6 +9,7 @@
 //! All paths in this API are relative to the repository root and use `/`.
 
 mod blame;
+mod discard;
 mod remote;
 mod status;
 

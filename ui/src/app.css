@@ -10,6 +10,14 @@
   --segShadow: none; --accent-ink: var(--accent); --on-accent: #0b0c0f;
   --fmBg: #121419; --fmChip: #1a1d24; --fieldBorder: #2c303a; --placeholder: #6c707d; --required: #ff9b8f;
   --switchOff: #3a3f4b; --knob: #ffffff; --statusDraft: #e0a100;
+  /* Source control (docs/design/source-control). The --sc-* values differ from the app-wide
+     tokens of the same name, so they apply only inside that panel. */
+  --sc-field: #0f1115; --sc-border: #2c303a; --sc-borderStrong: #3a3f4b; --sc-chip: #1c2114;
+  --disabled: #5a6070; --mod: #f2c58a; --del: #ff9b8f;
+  --toastBg: #f4f5f8; --toastText: #121418; --toastMuted: #4a505c; --toastOkBg: #1f9d55; --toastOk: #ffffff;
+  --toastShadow: 0 8px 24px rgba(0, 0, 0, 0.18);
+  /* The error icon sits on the inverted toast, so its red is chosen for that surface. */
+  --toastError: #b42318; --toastErrorMark: #ffffff;
   --font-ui: "Inter", system-ui, sans-serif;
   --font-mono: "JetBrains Mono", ui-monospace, Menlo, monospace;
   --font-display: "Space Grotesk", "Inter", sans-serif;
@@ -26,6 +34,9 @@
   --segShadow: 0 1px 2px rgba(16, 18, 24, 0.12); --accent-ink: #4d7a00;
   --fmBg: #fafafb; --fmChip: #f1f2f5; --fieldBorder: #dadde3; --placeholder: #878b96; --required: #b42318;
   --switchOff: #b9bec8;
+  --sc-field: #ffffff; --sc-border: #dadde3; --sc-borderStrong: #c9cdd5; --sc-chip: #f1f4e6;
+  --disabled: #9aa0ac; --mod: #a15c00; --del: #b42318;
+  --toastBg: #1b1d22; --toastText: #f4f5f8; --toastMuted: #b4b8c5; --toastOkBg: #c6f432; --toastOk: #0b0c0f; --toastError: #ff9b8f; --toastErrorMark: #0b0c0f;
   color-scheme: light;
 }
 
@@ -38,6 +49,7 @@ code, kbd { font-family: var(--font-mono); }
 kbd { font-size: 11px; padding: 2px 6px; border-radius: 5px; background: var(--chip); border: 1px solid var(--borderStrong); color: var(--text3); }
 :focus-visible { outline: 2px solid var(--accent-ink); outline-offset: 1px; }
 [hidden] { display: none !important; }
+.visually-hidden { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
 
 /* ---- Shell ---- */
 .app { display: flex; flex-direction: column; height: 100%; background: var(--bg); color: var(--text1); overflow: hidden; }
@@ -67,7 +79,7 @@ kbd { font-size: 11px; padding: 2px 6px; border-radius: 5px; background: var(--c
 .rail-spacer { flex: 1; }
 
 .sidebar { position: relative; flex-shrink: 0; display: flex; flex-direction: column; background: var(--side); border-right: 1px solid var(--line); min-height: 0; }
-.side-head { display: flex; align-items: center; justify-content: space-between; padding: 14px 14px 8px; }
+.side-head { display: flex; align-items: center; justify-content: space-between; padding: 14px 10px 8px 14px; }
 .eyebrow { font-size: 11px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); }
 .icon-btn { width: 26px; height: 26px; border: 0; border-radius: 6px; background: transparent; color: var(--muted); display: grid; place-items: center; }
 .icon-btn:hover { background: var(--active); color: var(--text1); }
@@ -294,42 +306,105 @@ kbd { font-size: 11px; padding: 2px 6px; border-radius: 5px; background: var(--c
 .context-menu kbd { background: transparent; border: 0; color: var(--muted); }
 .banners .error-bar.info { background: color-mix(in srgb, var(--accent-ink) 10%, var(--chrome)); color: var(--text1); }
 
-/* ---- Git ---- */
+/* ---- Git: shared ---- */
 .rail-btn { position: relative; }
-.rail-badge { position: absolute; right: 2px; bottom: 3px; min-width: 16px; height: 16px; padding: 0 4px; border-radius: 999px; background: var(--accent); color: var(--on-accent); font: 600 10px/16px var(--font-ui); text-align: center; }
+.rail-badge { position: absolute; top: 4px; right: 3px; min-width: 16px; height: 16px; padding: 0 3px; border-radius: 999px; background: var(--accent); color: var(--on-accent); box-shadow: 0 0 0 2px var(--chrome); font: 700 10px/16px var(--font-ui); text-align: center; }
 .branch-chip { max-width: 190px; }
 .branch-chip span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 button.chip-pill:hover { color: var(--text0); background: var(--active); }
-.git-panel { display: flex; flex-direction: column; gap: 10px; padding-bottom: 12px; }
-.git-branch { display: flex; align-items: center; gap: 8px; padding: 0 10px; }
-.git-branch .sp, .git-section-head .sp, .diff-head .sp, .crumbs .sp { flex: 1; }
-.git-branch .chip-pill { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.diff-head .sp, .crumbs .sp { flex: 1; }
 .git-note { padding: 4px 14px; font-size: 12px; color: var(--muted); }
 .git-error { color: var(--err); white-space: pre-wrap; overflow-wrap: anywhere; }
-.git-hint { font-size: 12px; color: var(--muted); }
-.git-sync { display: flex; flex-wrap: wrap; gap: 6px; padding: 0 10px; }
-.git-sync button { height: 28px; padding: 0 10px; font-size: 12px; }
-.git-sync button:last-child { flex: 1; white-space: nowrap; }
-.git-commit { display: flex; flex-direction: column; gap: 8px; padding: 0 10px; }
-.git-commit textarea { width: 100%; resize: vertical; min-height: 56px; padding: 7px 9px; border: 1px solid var(--border); border-radius: 8px; background: var(--field); color: var(--text1); font: inherit; }
-.git-commit textarea::placeholder { color: var(--muted); }
-.git-section { flex-shrink: 0; }
-.git-section-head { display: flex; align-items: center; gap: 8px; padding: 4px 10px 4px 14px; }
-.git-count { font-size: 11px; color: var(--muted); }
-.git-row .tree-actions { opacity: 1; pointer-events: auto; }
-.tree-row.git-row .tree { padding-right: 34px; }
-.git-row .dim { font-size: 11px; }
-.git-letter { flex-shrink: 0; width: 14px; text-align: center; font: 600 11px/1 var(--font-mono); color: var(--warn); }
+.git-letter { flex-shrink: 0; width: 14px; text-align: center; font: 600 11px/1 var(--font-mono); color: var(--mod); }
 .git-letter.tail { margin-left: auto; }
 .tree .dot + .git-letter.tail { margin-left: 0; }
-.git-letter.letter-A, .git-letter.letter-U { color: var(--ok); }
-.git-letter.letter-D, .git-letter.letter-conflict { color: var(--err); }
-.git-letter.letter-R, .git-letter.letter-C { color: var(--synTag); }
+.git-letter.letter-A { color: var(--ok); }
+.git-letter.letter-U, .git-letter.letter-R, .git-letter.letter-C { color: var(--synTag); }
+.git-letter.letter-D, .git-letter.letter-conflict { color: var(--del); }
 .blame-toggle { border: 1px solid var(--border); border-radius: 6px; background: transparent; color: var(--muted); font-size: 11px; padding: 1px 8px; }
 .blame-toggle[aria-pressed="true"] { background: var(--active); color: var(--text0); }
 .editor .cm-editor .cm-blame { width: 150px; border-right: 1px solid var(--hair); font: 11px/22px var(--font-ui); }
 .blame-line { display: block; position: relative; top: -2px; padding: 0 8px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted); }
 .blame-line.uncommitted { color: var(--accent-ink); }
+
+/* ---- Source control panel ---- */
+.side-scroll.fill { overflow: hidden; }
+.sc { --field: var(--sc-field); --border: var(--sc-border); --borderStrong: var(--sc-borderStrong); --chip: var(--sc-chip); flex: 1; min-height: 0; display: flex; flex-direction: column; }
+.sc-scroll { flex: 1; min-height: 0; overflow: auto; padding-bottom: 12px; }
+.sc button:disabled { opacity: 1; cursor: not-allowed; }
+.sc-remote { display: flex; flex-direction: column; gap: 8px; padding: 0 12px; }
+.sc-branch { height: 36px; display: flex; align-items: center; gap: 8px; padding: 0 10px; border-radius: 9px; border: 1px solid var(--border); background: var(--field); color: var(--text0); }
+.sc-branch-icon { display: flex; color: var(--accent-ink); }
+.sc-branch-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; font-weight: 600; }
+.sc-track { margin-left: auto; flex-shrink: 0; font: 11px var(--font-mono); color: var(--muted); }
+.sc-chevron { display: flex; color: var(--muted); }
+.sc-sync { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); border-radius: 9px; border: 1px solid var(--border); background: var(--field); overflow: hidden; }
+.sc-sync-btn { height: 30px; display: flex; align-items: center; justify-content: center; gap: 6px; border: 0; background: transparent; color: var(--text2); font-size: 12px; font-weight: 500; white-space: nowrap; }
+.sc-sync-btn + .sc-sync-btn { border-left: 1px solid var(--border); }
+.sc-sync-btn:hover:not(:disabled) { background: var(--active); }
+.sc-sync-btn.push:not(:disabled), .sc-sync-btn.push.running { color: var(--text0); font-weight: 600; }
+.sc-sync-btn.push:not(:disabled) svg { color: var(--accent-ink); }
+.sc .sc-sync-btn:disabled { color: var(--disabled); }
+.sc .sc-sync-btn.running { cursor: progress; color: var(--text2); }
+.sc-sync-btn:focus-visible { outline-offset: -2px; }
+.sc-spinner { width: 12px; height: 12px; border-radius: 50%; border: 2px solid var(--border); border-top-color: var(--accent-ink); animation: sc-spin 0.7s linear infinite; }
+@keyframes sc-spin { to { transform: rotate(360deg); } }
+.sc-note { padding: 8px 14px 0; font-size: 11.5px; color: var(--muted); }
+.sc-note-error { color: var(--del); white-space: pre-wrap; overflow-wrap: anywhere; }
+.sc-commit { display: flex; flex-direction: column; gap: 8px; padding: 14px 12px 0; }
+.sc-box { display: flex; flex-direction: column; border-radius: 10px; border: 1px solid var(--border); background: var(--field); }
+.sc-box:focus-within { border-color: var(--accent-ink); }
+.sc-box textarea { display: block; resize: none; border: 0; outline: none; background: transparent; padding: 10px 12px 4px; height: 54px; font: 13px/20px var(--font-ui); color: var(--text1); }
+.sc-box textarea::placeholder { color: var(--muted); opacity: 0.8; }
+.sc-toolbar { display: flex; align-items: center; gap: 6px; height: 34px; padding: 4px 6px 6px 8px; }
+.sc-ai { height: 24px; display: flex; align-items: center; gap: 5px; padding: 0 8px; border: 0; border-radius: 6px; background: var(--chip); color: var(--accent-ink); font-size: 11.5px; font-weight: 600; }
+/* Hidden until there is an AI integration; its space is kept. */
+.sc-ai.unavailable { visibility: hidden; }
+.sc-key { margin-left: auto; font: 10.5px var(--font-mono); padding: 1px 5px; border-radius: 4px; border: 1px solid var(--border); background: transparent; color: var(--muted); }
+.sc-commit-btn { height: 34px; display: flex; align-items: center; justify-content: center; gap: 8px; padding: 0 10px; border-radius: 9px; border: 1px dashed var(--borderStrong); background: transparent; color: var(--muted); font-size: 12.5px; font-weight: 500; }
+.sc-commit-btn.ready { border: 0; background: var(--accent); color: var(--on-accent); font-size: 13px; font-weight: 600; }
+.sc-commit-btn span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sc-section { margin-top: 18px; }
+.sc-section-head { display: flex; align-items: center; gap: 6px; height: 28px; padding: 0 10px 0 12px; }
+.sc-section-toggle { flex: 1; min-width: 0; height: 100%; display: flex; align-items: center; gap: 6px; padding: 0; border: 0; background: transparent; color: var(--muted); }
+.sc-count { min-width: 18px; height: 18px; padding: 0 4px; display: inline-flex; align-items: center; justify-content: center; border-radius: 999px; background: var(--line); color: var(--text2); font-size: 11px; font-weight: 600; }
+.sc-section.staged .sc-count { background: var(--accent); color: var(--on-accent); }
+.sc-files { list-style: none; margin: 0; padding: 0; }
+.sc-row { display: flex; align-items: center; gap: 8px; height: 30px; margin: 0 6px; padding: 0 6px 0 24px; border-radius: 7px; }
+.sc-row:hover, .sc-row:focus-within, .sc-row.active { background: var(--active); }
+.sc-file { flex: 1; min-width: 0; height: 100%; display: flex; align-items: center; gap: 8px; padding: 0; border: 0; background: transparent; text-align: left; color: var(--text1); }
+.sc-row:hover .sc-file, .sc-row:focus-within .sc-file, .sc-row.active .sc-file { color: var(--text0); }
+.sc-badge { flex-shrink: 0; font: 500 9.5px/1.4 var(--font-mono); color: var(--text3); background: var(--line); border-radius: 4px; padding: 1px 4px; }
+.sc-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; }
+.sc-folder { flex-shrink: 100; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11px; color: var(--muted); }
+/* Row actions take no room until the row is hovered or holds focus, but stay in the tab order. */
+.sc-actions { display: flex; gap: 8px; width: 0; margin-left: -8px; overflow: hidden; opacity: 0; }
+.sc-row:hover .sc-actions, .sc-row:focus-within .sc-actions { width: auto; margin-left: 0; overflow: visible; opacity: 1; }
+.sc-action { width: 24px; height: 24px; flex-shrink: 0; display: flex; align-items: center; justify-content: center; border: 0; border-radius: 6px; background: transparent; color: var(--muted); }
+.sc-action:hover:not(:disabled) { background: var(--line); color: var(--text0); }
+.sc-actions .sc-action { width: 22px; height: 22px; border-radius: 5px; color: var(--text3); }
+.sc .sc-action:disabled { color: var(--disabled); }
+.sc-letter { width: 16px; flex-shrink: 0; text-align: center; font: 600 12px var(--font-mono); color: var(--mod); }
+.sc-letter[data-letter="A"] { color: var(--ok); }
+.sc-letter[data-letter="D"], .sc-letter[data-letter="!"] { color: var(--del); }
+.sc-letter[data-letter="U"], .sc-letter[data-letter="R"], .sc-letter[data-letter="C"] { color: var(--synTag); }
+.sc-clean { display: flex; align-items: center; gap: 8px; margin: 4px 12px 0; padding: 10px 12px; border-radius: 9px; border: 1px dashed var(--border); color: var(--muted); font-size: 12.5px; }
+.sc-clean svg { color: var(--ok); }
+
+/* ---- Toast ---- */
+.toast-region:not(:empty) { padding: 0 12px 12px; }
+/* When the panel is not on screen, the same toast floats above the status bar. */
+.toast-floating { position: fixed; left: 56px; bottom: 28px; z-index: 40; width: 288px; }
+.toast { display: flex; align-items: center; gap: 10px; padding: 10px 8px 10px 12px; border-radius: 10px; background: var(--toastBg); box-shadow: var(--toastShadow); }
+.toast-icon { width: 22px; height: 22px; flex-shrink: 0; display: flex; align-items: center; justify-content: center; border-radius: 50%; background: var(--toastOkBg); color: var(--toastOk); }
+.toast.error .toast-icon { background: var(--toastError); color: var(--toastErrorMark); }
+.toast-text { flex: 1; min-width: 0; display: flex; flex-direction: column; align-items: flex-start; gap: 1px; line-height: 1.22; }
+.toast-title { font-size: 13px; font-weight: 600; color: var(--toastText); }
+.toast-detail { font-size: 11.5px; color: var(--toastMuted); overflow-wrap: anywhere; }
+.toast-link { margin-top: 2px; padding: 0; border: 0; background: transparent; color: var(--toastText); font-size: 11.5px; font-weight: 600; text-decoration: underline; }
+.toast-details { align-self: stretch; max-height: 160px; overflow: auto; margin: 4px 0 0; white-space: pre-wrap; overflow-wrap: anywhere; font: 10.5px/1.5 var(--font-mono); color: var(--toastText); }
+.toast-close { width: 26px; height: 26px; flex-shrink: 0; display: flex; align-items: center; justify-content: center; border: 0; border-radius: 6px; background: transparent; color: var(--toastMuted); }
+.toast :focus-visible { outline-color: var(--toastText); }
 
 /* ---- Diff view ---- */
 .diff { flex: 1; min-height: 0; display: flex; flex-direction: column; }
