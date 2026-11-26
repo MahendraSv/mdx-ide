@@ -91,7 +91,12 @@ pub fn create_folder(state: State<'_, AppState>, path: String) -> CmdResult<Stri
 /// Rename or move a page or folder, updating the links affected by it.
 /// `unsaved` maps open pages with unsaved changes to their editor text.
 #[tauri::command]
-pub async fn rename_entry(state: State<'_, AppState>, from: String, to: String, unsaved: HashMap<String, String>) -> CmdResult<RenameReport> {
+pub async fn rename_entry(
+    state: State<'_, AppState>,
+    from: String,
+    to: String,
+    unsaved: HashMap<String, String>,
+) -> CmdResult<RenameReport> {
     with_ws(&state, |ws| ws.rename_updating_links(&from, &to, &unsaved).map_err(|e| e.to_string()))
 }
 

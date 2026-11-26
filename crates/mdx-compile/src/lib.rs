@@ -84,12 +84,8 @@ pub fn annotate_source_lines(tree: &mut hast::Node) {
                 properties.push(("dataTag".into(), hast::PropertyValue::String(name)));
                 properties.push(("className".into(), hast::PropertyValue::SpaceSeparated(vec!["mdx-ide-block".into()])));
                 let inner = std::mem::replace(child, hast::Node::Text(hast::Text { value: String::new(), position: None }));
-                *child = hast::Node::Element(hast::Element {
-                    tag_name: "div".into(),
-                    properties,
-                    children: vec![inner],
-                    position: Some(pos),
-                });
+                *child =
+                    hast::Node::Element(hast::Element { tag_name: "div".into(), properties, children: vec![inner], position: Some(pos) });
             }
             _ => {}
         }

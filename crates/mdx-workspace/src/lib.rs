@@ -82,8 +82,8 @@ pub fn parse_mdxlint_report(json: &str, source: &str) -> Result<Vec<Diagnostic>,
             continue;
         }
         let place = m.get("place");
-        let range = place
-            .and_then(|p| Some(mdx_core::Range { start: point(p.get("start")?)?, end: point(p.get("end").or(p.get("start"))?)? }));
+        let range =
+            place.and_then(|p| Some(mdx_core::Range { start: point(p.get("start")?)?, end: point(p.get("end").or(p.get("start"))?)? }));
         let rule = m.get("ruleId").and_then(|r| r.as_str()).unwrap_or("mdxlint");
         let reason = m.get("reason").and_then(|r| r.as_str()).unwrap_or("");
         out.push(Diagnostic::new(DiagnosticSource::Mdxlint, Severity::Warning, rule, reason, range));
@@ -376,10 +376,7 @@ mod tests {
 
     #[test]
     fn converts_rc_to_cli_args() {
-        let args = rc_to_args(
-            r#"{"plugins":["remark-gfm",["a",true],["b",false],["c",{"x":true}]],"settings":{"bullet":"-"}}"#,
-        )
-        .unwrap();
+        let args = rc_to_args(r#"{"plugins":["remark-gfm",["a",true],["b",false],["c",{"x":true}]],"settings":{"bullet":"-"}}"#).unwrap();
         assert_eq!(args, ["-u", "remark-gfm", "-u", "a", "-u", "c=\"x\":true", "-s", "\"bullet\":\"-\""]);
         assert!(rc_to_args(r#"{"plugins":[["a",80]]}"#).is_err());
     }
