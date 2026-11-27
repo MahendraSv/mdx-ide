@@ -21,7 +21,25 @@ Built with **Tauri 2**. The Rust core does the parsing, compiling, checking and 
 | Outline panel, workspace search, Problems panel, word count, atomic saves, file watching (external edits reload, config hot-reloads) | various |
 | **Git**: Source Control panel (status, stage, discard, commit, fetch, pull, push), branch create / switch, side-by-side source and rendered diffs, blame gutter. Needs `git` installed | `mdx-git`, `ui/src/git` |
 | **Full-screen preview** (⌘⇧↵, Esc exits) and **Export to PDF** (macOS): the page as it currently looks, including component state | `ui/src/App.tsx`, `src-tauri/src/export.rs` |
+| **Slide decks** (see below): present a page one slide at a time, with interactive components | `mdx-compile/src/slides.rs`, `preview-runtime/src/deck.tsx` |
 | Manifest generator for React/TypeScript design systems | `sidecars/manifest-gen` |
+
+## Slide decks
+
+A page with `type: slides` in its frontmatter is a deck, and each `---` starts a new slide. See `examples/docs-site/docs/guides/slides-demo.mdx`.
+
+Press ⌘⇧↵ (Ctrl+Shift+Enter) to present from the current slide.
+
+| Key | Action |
+|---|---|
+| →, Space, Page Down | Next slide |
+| ←, Shift+Space, Page Up | Previous slide |
+| Home, End | First, last slide |
+| G | All slides |
+| R | Reset the components on this slide |
+| Esc | Close the overview, leave a field, or stop presenting |
+
+Keys go to a component while you type in a field or use a slider, tab list or similar widget. All slides stay loaded, so components keep their state (and timers or videos keep running) until the page is edited. The preview sandbox applies: no network requests, embedded sites, browser storage or pop-up dialogs.
 
 ## Quick start
 

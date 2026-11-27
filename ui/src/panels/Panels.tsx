@@ -87,7 +87,16 @@ function snippetFor(c: ComponentManifest["components"][number]): string {
   return c.acceptsChildren ? `<${c.name}${req}>\n  \${}\n</${c.name}>` : `<${c.name}${req} />`;
 }
 
-export function Problems({ diagnostics, runtimeError, note, onGoto }: { diagnostics: Diagnostic[]; runtimeError: string | null; note?: string | null; onGoto(line: number, column: number): void }) {
+interface ProblemsProps {
+  diagnostics: Diagnostic[];
+  runtimeError: string | null;
+  /** Slides that could not be shown, with the line each starts on. */
+  slideErrors?: { line: number; message: string }[];
+  note?: string | null;
+  onGoto(line: number, column: number): void;
+}
+
+export function Problems({ diagnostics, runtimeError, slideErrors = [], note, onGoto }: ProblemsProps) {
   return (
     <ul className="list problems">
       {runtimeError && (
@@ -95,6 +104,12 @@ export function Problems({ diagnostics, runtimeError, note, onGoto }: { diagnost
           <span className="badge">preview</span> {runtimeError}
         </li>
       )}
+      {slideErrors.map((e, i) => (
+        <li key={`slide-${i}`} className="sev-error" onClick={() => onGoto(e.line, 1)}>
+          <span className="badge">preview</span> {e.message}
+          <span className="dir"> — line {e.line}</span>
+        </li>
+      ))}
       {note && <li className="empty">{note}</li>}
       {diagnostics.map((d, i) => (
         <li key={i} className={`sev-${d.severity}`} title={`${d.source} · ${d.rule}`} onClick={() => d.range && onGoto(d.range.start.line, d.range.start.column)}>
@@ -102,7 +117,7 @@ export function Problems({ diagnostics, runtimeError, note, onGoto }: { diagnost
           {d.range && <span className="dir"> — line {d.range.start.line}</span>}
         </li>
       ))}
-      {diagnostics.length === 0 && !runtimeError && <li className="empty">No problems</li>}
+      {diagnostics.length === 0 && !runtimeError && slideErrors.length === 0 && <li className="empty">No problems</li>}
     </ul>
   );
 }

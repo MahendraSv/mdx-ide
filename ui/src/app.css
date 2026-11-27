@@ -185,6 +185,16 @@ body.resizing iframe { pointer-events: none; }
 .preview-pane.presenting .preview-head { position: absolute; z-index: 2; top: 24px; right: 34px; height: 32px; padding: 0 8px; border: 1px solid var(--border); border-radius: 10px; background: var(--panel); opacity: 0.35; transition: opacity 0.15s; }
 .preview-pane.presenting .preview-head:hover, .preview-pane.presenting .preview-head:focus-within { opacity: 1; }
 .preview-pane.presenting .preview-head > span { display: none; }
+/* A presentation: controls sit in the lower corner and stay out of the way until pointed at. */
+.preview-pane.presenting.deck { background: #000; }
+.preview-pane.presenting.deck .preview-head { top: auto; right: 12px; bottom: 12px; opacity: 0.15; }
+.preview-pane.presenting.deck .preview-head:hover, .preview-pane.presenting.deck .preview-head:focus-within { opacity: 1; }
+.slide-nav { align-items: center; }
+.slide-nav .count { min-width: 44px; text-align: center; font-variant-numeric: tabular-nums; color: var(--text2); white-space: nowrap; }
+.device button:disabled { opacity: 0.4; }
+@container (max-width: 340px) {
+  .preview-pane.deck .live-label { display: none; }
+}
 .device button { width: 28px; height: 24px; display: grid; place-items: center; border: 0; border-radius: 6px; background: transparent; color: var(--muted); }
 .device button[aria-pressed="true"] { background: var(--line); color: var(--text1); }
 .preview-head .live.bad { background: var(--err); }

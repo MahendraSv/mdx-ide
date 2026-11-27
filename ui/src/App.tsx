@@ -1,7 +1,7 @@
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { confirm, open, save as saveDialog } from "@tauri-apps/plugin-dialog";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { api, onWorkspaceChanged, type Blame, type Branch, type ChangedFile, type Diagnostic, type DocumentAnalysis, type WorkspaceInfo } from "./api";
+import { api, onWorkspaceChanged, type Blame, type Branch, type ChangedFile, type Diagnostic, type DocumentAnalysis, type WorkspaceInfo, type PreviewPage } from "./api";
 import { Editor, type EditorHandle } from "./editor/Editor";
 import { canMove, Explorer, NewFileIcon, NewFolderIcon, type Draft, type Entry, type EntryKind } from "./panels/Explorer";
 import { Outline, Palette, Problems, Search } from "./panels/Panels";
@@ -14,6 +14,8 @@ import { errorToast, Toast, type ToastMessage } from "./git/Toast";
 import { explorerMarks, workspacePath, type DiffTarget } from "./git/model";
 import { useGit } from "./git/useGit";
 import { Preview, type PreviewHandle } from "./Preview";
+import type { SlideState } from "./preview-protocol";
+import { presentationKey, SlideNav } from "./Slides";
 
 type SideTab = "files" | "search" | "components" | "git";
 const SIDE_TITLES: Record<SideTab, string> = { files: "Explorer", search: "Search", components: "Components", git: "Source control" };
@@ -114,7 +116,7 @@ interface Buffer {
   /** Changes whenever the contents are replaced from outside the editor. */
   version: number;
   /** Last successfully compiled preview module. */
-  code: string | null;
+  page: PreviewPage | null;
   schema: object | null;
 }
 
@@ -130,6 +132,8 @@ export default function App() {
   const [analysis, setAnalysis] = useState<DocumentAnalysis>(EMPTY);
   const [compileError, setCompileError] = useState<Diagnostic | null>(null);
   const [runtimeError, setRuntimeError] = useState<string | null>(null);
+  /** Set while the preview shows a slide deck. */
+  const [slides, setSlides] = useState<SlideState | null>(null);
   const [tab, setTab] = useState<SideTab>("files");
   const [view, setView] = useState<ViewMode>("split");
   const [theme, setTheme] = useState<Theme>(initialTheme);
@@ -284,7 +288,7 @@ export default function App() {
     window.clearTimeout(timer.current);
     timer.current = window.setTimeout(async () => {
       try {
-        const [a, c, schema] = await Promise.all([api.analyze(p, source), api.compilePreview(p, source), api.frontmatterSchema(p)]);
+        const [a, c, schema] = await Promise.all([api.analyze(p, source), api.compilePreview(p, source, true), api.frontmatterSchema(p)]);
         if (pathRef.current !== p) return;
         setAnalysis(a);
         scheduleLint(p, source);
@@ -293,8 +297,8 @@ export default function App() {
         if (buffer) buffer.schema = (schema as object | null) ?? null;
         if (c.status === "ok") {
           setCompileError(null);
-          if (buffer) buffer.code = c.code;
-          preview.current?.render(c.code, p);
+          if (buffer) buffer.page = c;
+          preview.current?.render(c, p);
         } else {
           setCompileError(c.diagnostic);
         }
@@ -327,11 +331,12 @@ export default function App() {
       setAnalysis(EMPTY);
       setCompileError(null);
       setRuntimeError(null);
+      setSlides(null);
       setLintDiags([]);
       const buffer = p ? buffers.current.get(p) : undefined;
       setFmSchema(buffer?.schema ?? null);
       // Show the file's last good render at once; never leave another file's preview up.
-      if (p && buffer?.code) preview.current?.render(buffer.code, p);
+      if (p && buffer?.page) preview.current?.render(buffer.page, p);
       else preview.current?.clear();
       if (p && buffer) refresh(p, buffer.text);
     },
@@ -345,7 +350,7 @@ export default function App() {
       if (!buffers.current.has(p)) {
         const contents = await api.readFile(p);
         if (!buffers.current.has(p)) {
-          buffers.current.set(p, { text: contents, saved: contents, version: ++nextVersion.current, code: null, schema: null });
+          buffers.current.set(p, { text: contents, saved: contents, version: ++nextVersion.current, page: null, schema: null });
           setTabs((t) => (t.includes(p) ? t : [...t, p]));
         }
       }
@@ -458,7 +463,7 @@ export default function App() {
     buffers.current = new Map(
       [...buffers.current].map(([p, buffer]) => {
         // The cached preview resolved relative paths against the old location.
-        if (moved(p) !== p) buffer.code = null;
+        if (moved(p) !== p) buffer.page = null;
         return [moved(p), buffer];
       }),
     );
@@ -499,7 +504,7 @@ export default function App() {
             editor.current?.replaceIn(String(buffer.version), next);
           }
         }
-        buffer.code = null;
+        buffer.page = null;
         markDirty(file.path, buffer.text !== buffer.saved);
         if (pathRef.current === file.path) refresh(file.path, buffer.text);
       }
@@ -634,7 +639,7 @@ export default function App() {
         const contents = await api.readFile(p);
         if (contents === (only ? buffer.text : buffer.saved) && contents === buffer.saved) continue;
         editor.current?.forget(String(buffer.version));
-        Object.assign(buffer, { text: contents, saved: contents, version: ++nextVersion.current, code: null });
+        Object.assign(buffer, { text: contents, saved: contents, version: ++nextVersion.current, page: null });
         markDirty(p, false);
       } catch {
         gone.push(p);
@@ -821,26 +826,37 @@ export default function App() {
   };
 
   useEffect(() => {
-    if (presenting) exitButton.current?.focus();
+    if (!presenting) return;
+    // Slides are driven from the keyboard, so they take it; otherwise it goes to the exit button.
+    if (slides) preview.current?.focus();
+    else exitButton.current?.focus();
   }, [presenting]);
   useEffect(() => {
     if (presenting && !path) void stopPresenting();
   }, [path]);
 
   // Escape leaves full screen; ⌘⇧Enter / Ctrl+Shift+Enter toggles it.
-  const shortcuts = useRef<{ escape(): boolean; present(): void }>({ escape: () => false, present: () => {} });
+  const shortcuts = useRef<{ escape(): boolean; present(): void; slide(e: KeyboardEvent): boolean }>({ escape: () => false, present: () => {}, slide: () => false });
   shortcuts.current = {
     escape: () => {
-      // An open palette closes first.
+      // An open palette closes first, and so does the slide overview.
       if (!presenting || palette || branches || moving) return false;
-      void stopPresenting();
+      if (slides?.grid) preview.current?.slide("close-grid");
+      else void stopPresenting();
       return true;
     },
     present: () => void (presenting ? stopPresenting() : present()),
+    // Keys pressed while a floating control has the keyboard still drive the presentation.
+    slide: (e) => {
+      if (!presenting || !slides || palette || branches || moving) return false;
+      const command = presentationKey(e);
+      if (command) preview.current?.slide(command);
+      return !!command;
+    },
   };
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape" && shortcuts.current.escape()) {
+      if ((e.key === "Escape" && shortcuts.current.escape()) || shortcuts.current.slide(e)) {
         e.preventDefault();
         e.stopPropagation();
       } else if (e.key === "Enter" && e.shiftKey && (e.metaKey || e.ctrlKey) && !e.altKey) {
@@ -857,6 +873,10 @@ export default function App() {
   const exportPdf = async () => {
     const page = pathRef.current;
     if (!page || exporting) return;
+    if (buffers.current.get(page)?.page?.slides) {
+      setToast(errorToast(++toastId.current, "Export failed", "PDF export for slide decks is not available yet."));
+      return;
+    }
     if (compileError || runtimeError) {
       setToast(errorToast(++toastId.current, "Export failed", "Fix the error shown in the preview first, so the PDF matches the page."));
       return;
@@ -925,7 +945,7 @@ export default function App() {
           const contents = await api.readFile(p);
           if (contents === buffer.text) continue;
           editor.current?.forget(String(buffer.version));
-          Object.assign(buffer, { text: contents, saved: contents, version: ++nextVersion.current, code: null });
+          Object.assign(buffer, { text: contents, saved: contents, version: ++nextVersion.current, page: null });
           setReloads((n) => n + 1);
         } catch {
           // Deleted or renamed on disk: keep the tab so nothing disappears under the user.
@@ -945,7 +965,9 @@ export default function App() {
   }, [previewGeneration]);
 
   const diagnostics = [...(compileError ? [compileError] : []), ...analysis.diagnostics, ...lintDiags];
-  const errors = diagnostics.filter((d) => d.severity === "error").length + (runtimeError ? 1 : 0);
+  const deckStarts = path ? (buffers.current.get(path)?.page?.slides?.starts ?? []) : [];
+  const slideErrors = (slides?.errors ?? []).map((e) => ({ line: deckStarts[e.slide] ?? 1, message: `Slide ${e.slide + 1}: ${e.message}` }));
+  const errors = diagnostics.filter((d) => d.severity === "error").length + (runtimeError ? 1 : 0) + slideErrors.length;
   const warnings = diagnostics.filter((d) => d.severity === "warning").length;
   const problems = errors + warnings;
   const fileName = path ? path.slice(path.lastIndexOf("/") + 1) : null;
@@ -994,8 +1016,8 @@ export default function App() {
     { id: "view-preview", label: "View: Preview", run: () => setView("preview") },
     ...(path
       ? [
-          { id: "present", label: presenting ? "Preview: Exit full screen" : "Preview: Full screen", hint: "⌘⇧↵", run: () => shortcuts.current.present() },
-          { id: "export-pdf", label: "Export to PDF…", run: () => void exportPdf() },
+          { id: "present", label: presenting ? "Preview: Exit full screen" : slides ? "Slides: Present" : "Preview: Full screen", hint: "⌘⇧↵", run: () => shortcuts.current.present() },
+          ...(slides ? [] : [{ id: "export-pdf", label: "Export to PDF…", run: () => void exportPdf() }]),
         ]
       : []),
     { id: "device-desktop", label: "Preview: Desktop width", run: () => setDevice("desktop") },
@@ -1291,7 +1313,7 @@ export default function App() {
                     onImageError={setError}
                     onCursor={(line, column) => {
                       setCursor({ line, column });
-                      preview.current?.setCursor(line);
+                      preview.current?.setCursor(line, true);
                     }}
                   />
                 </>
@@ -1325,28 +1347,34 @@ export default function App() {
               />
             )}
 
-            <section className={`preview-pane${presenting ? " presenting" : ""}`} aria-label="Preview" hidden={!showPreview && !presenting} style={view === "split" ? { flexGrow: (1 - split) * 100 } : undefined}>
+            <section className={`preview-pane${presenting ? " presenting" : ""}${slides ? " deck" : ""}`} aria-label="Preview" hidden={!showPreview && !presenting} style={view === "split" ? { flexGrow: (1 - split) * 100 } : undefined}>
               <div className="preview-head">
-                <span className="live-label"><span className={`live${compileError || runtimeError ? " bad" : ""}`} />{compileError || runtimeError ? "Preview error" : "Live preview"}</span>
-                {view === "split" && <span className="scroll-synced">Scroll synced</span>}
+                <span className="live-label"><span className={`live${compileError || runtimeError ? " bad" : ""}`} />{compileError || runtimeError ? "Preview error" : slides ? "Slides" : "Live preview"}</span>
+                {view === "split" && !slides && <span className="scroll-synced">Scroll synced</span>}
                 <span className="sp" />
-                <div role="group" aria-label="Preview width" className="device">
-                  <button type="button" aria-label="Desktop width" aria-pressed={device === "desktop"} onClick={() => setDevice("desktop")}>
-                    <Icon size={14} sw={2}><rect x="3" y="4" width="18" height="12" rx="2" /><path d="M8 20h8" /></Icon>
-                  </button>
-                  <button type="button" aria-label="Mobile width" aria-pressed={device === "mobile"} onClick={() => setDevice("mobile")}>
-                    <Icon size={14} sw={2}><rect x="7" y="3" width="10" height="18" rx="2" /></Icon>
-                  </button>
-                </div>
+                {slides ? (
+                  <SlideNav state={slides} onCommand={(command) => preview.current?.slide(command)} />
+                ) : (
+                  <div role="group" aria-label="Preview width" className="device">
+                    <button type="button" aria-label="Desktop width" aria-pressed={device === "desktop"} onClick={() => setDevice("desktop")}>
+                      <Icon size={14} sw={2}><rect x="3" y="4" width="18" height="12" rx="2" /><path d="M8 20h8" /></Icon>
+                    </button>
+                    <button type="button" aria-label="Mobile width" aria-pressed={device === "mobile"} onClick={() => setDevice("mobile")}>
+                      <Icon size={14} sw={2}><rect x="7" y="3" width="10" height="18" rx="2" /></Icon>
+                    </button>
+                  </div>
+                )}
                 <div className="device">
-                  <button type="button" aria-label="Export to PDF" title="Export to PDF" aria-busy={exporting || undefined} disabled={!path || exporting} onClick={() => void exportPdf()}>
-                    {exporting ? <span className="sc-spinner" aria-hidden="true" /> : <Icon size={14} sw={2}><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8zM14 3v5h5M12 11v6M9 14l3 3 3-3" /></Icon>}
-                  </button>
+                  {!slides && (
+                    <button type="button" aria-label="Export to PDF" title="Export to PDF" aria-busy={exporting || undefined} disabled={!path || exporting} onClick={() => void exportPdf()}>
+                      {exporting ? <span className="sc-spinner" aria-hidden="true" /> : <Icon size={14} sw={2}><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8zM14 3v5h5M12 11v6M9 14l3 3 3-3" /></Icon>}
+                    </button>
+                  )}
                   <button
                     ref={exitButton}
                     type="button"
-                    aria-label={presenting ? "Exit full screen" : "Full screen preview"}
-                    title={presenting ? "Exit full screen (Esc)" : "Full screen preview (⌘⇧↵)"}
+                    aria-label={presenting ? "Exit full screen" : slides ? "Present slides" : "Full screen preview"}
+                    title={presenting ? "Exit full screen (Esc)" : slides ? "Present from this slide (⌘⇧↵)" : "Full screen preview (⌘⇧↵)"}
                     disabled={!path}
                     onClick={() => shortcuts.current.present()}
                   >
@@ -1354,7 +1382,8 @@ export default function App() {
                   </button>
                 </div>
               </div>
-              <div className={`preview-body ${device}`}>
+              {/* Slides are scaled to fit, so the device widths do not apply to them. */}
+              <div className={`preview-body ${slides ? "desktop" : device}`}>
                 {(compileError || runtimeError) && (
                   <div className="overlay" role="alert">
                     <strong>{compileError ? "MDX error" : "Render error"}</strong>
@@ -1373,6 +1402,8 @@ export default function App() {
                   dark={dark}
                   onLoadError={(m) => setError(`Preview could not load your components: ${m}`)}
                   onRuntimeError={setRuntimeError}
+                  onSlides={setSlides}
+                  presenting={presenting}
                   onShortcut={(key) => (key === "escape" ? void shortcuts.current.escape() : shortcuts.current.present())}
                   onSourceClick={(l) => !presenting && editor.current?.gotoLine(l)}
                 />
@@ -1425,7 +1456,7 @@ export default function App() {
           </button>
         </div>
         {problemsOpen && (
-          <Problems diagnostics={diagnostics} runtimeError={runtimeError} note={lintError ? `mdxlint rules unavailable: ${lintError}` : null} onGoto={(l, c) => editor.current?.gotoLine(l, c)} />
+          <Problems diagnostics={diagnostics} runtimeError={runtimeError} slideErrors={slideErrors} note={lintError ? `mdxlint rules unavailable: ${lintError}` : null} onGoto={(l, c) => editor.current?.gotoLine(l, c)} />
         )}
       </section>
 

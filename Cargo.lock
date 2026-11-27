@@ -2347,6 +2347,8 @@ dependencies = [
  "mdx-syntax",
  "mdxjs",
  "serde",
+ "serde_yaml",
+ "toml 0.8.2",
 ]
 
 [[package]]

@@ -9,6 +9,12 @@
 - ◐ Verified on Ubuntu WebKitGTK (headless). ☐ Test on macOS WKWebView, Windows WebView2 and the team's real Linux GPUs
 - ☐ Exit check: preview updates in under 200 ms after typing on all three OSes
 
+## Slides
+
+- ✅ Phase 1: `type: slides`, `---` between slides, slide preview that follows the cursor, presenting with keyboard / clicker, overview, reset, component state kept, errors contained per slide
+- ☐ Phase 2: layouts, columns, step reveals, speaker notes, slide list in the Outline, overflow warning, new-deck template, PDF with one slide per page, warning for `---` directly under text, deck-friendly lint rules
+- ☐ Later: presenter view on a second screen, transitions, themes, opt-in network access for demos
+
 ## Phase 1: MVP (6–8 weeks)
 
 1. ✅ Highlighting for Markdown + JSX + ESM + YAML (nested Lezer parsers, `ui/src/editor/mdx-language.ts`)

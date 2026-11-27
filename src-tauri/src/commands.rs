@@ -125,8 +125,8 @@ pub enum PreviewResult {
 }
 
 #[tauri::command]
-pub async fn compile_preview(path: String, source: String) -> CmdResult<PreviewResult> {
-    let opts = CompileOptions { filepath: Some(path), source_lines: true };
+pub async fn compile_preview(path: String, source: String, slides: bool) -> CmdResult<PreviewResult> {
+    let opts = CompileOptions { filepath: Some(path), source_lines: true, slides };
     Ok(match mdx_compile::compile(&source, &opts) {
         Ok(out) => PreviewResult::Ok(out),
         Err(diagnostic) => PreviewResult::Error { diagnostic },

@@ -3,10 +3,13 @@
 
 import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
+import type { PreviewPage } from "./preview-protocol";
 
 export interface Point { line: number; column: number; offset: number }
 export interface Range { start: Point; end: Point }
 export type Severity = "error" | "warning" | "info";
+
+export type { PreviewPage };
 
 export interface Diagnostic {
   range: Range | null;
@@ -60,7 +63,7 @@ export interface CompletionItem {
 
 export interface SearchHit { path: string; line: number; column: number; preview: string }
 
-export type PreviewResult = { status: "ok"; code: string } | { status: "error"; diagnostic: Diagnostic };
+export type PreviewResult = ({ status: "ok" } & PreviewPage) | { status: "error"; diagnostic: Diagnostic };
 
 export interface RenameReport {
   path: string;
@@ -129,7 +132,8 @@ export const api = {
   readFile: (path: string) => invoke<string>("read_file", { path }),
   writeFile: (path: string, contents: string) => invoke<void>("write_file", { path, contents }),
   analyze: (path: string, source: string) => invoke<DocumentAnalysis>("analyze", { path, source }),
-  compilePreview: (path: string, source: string) => invoke<PreviewResult>("compile_preview", { path, source }),
+  /** With `slides`, a page with `type: slides` compiles to a slide deck. */
+  compilePreview: (path: string, source: string, slides: boolean) => invoke<PreviewResult>("compile_preview", { path, source, slides }),
   search: (query: string, opts: { regex?: boolean; caseSensitive?: boolean } = {}) =>
     invoke<SearchHit[]>("search", { options: { query, ...opts } }),
   completeComponents: () => invoke<CompletionItem[]>("complete_components"),

@@ -6,10 +6,14 @@
 //!
 //! * [`annotate_source_lines`] adds `data-line="N"` to top-level elements so
 //!   the preview can scroll in sync with the editor.
+//! * For slide decks (`type: slides`, see [`slides`]), the page is cut into one
+//!   `<section>` per slide.
 //!
 //! Add your own transforms (admonitions, heading ids, ...) next to it. If
 //! the docs site depends on JS remark/rehype plugins that are too costly to
 //! port, use the "site-accurate" Node sidecar for full fidelity instead.
+
+mod slides;
 
 use markdown::Location;
 use mdx_core::{Diagnostic, DiagnosticSource};
@@ -17,18 +21,24 @@ use mdxjs::hast;
 use mdxjs::{JsxRuntime, MdxConstructs, MdxParseOptions, Options};
 use serde::Serialize;
 
+pub use slides::Deck;
+
 #[derive(Debug, Clone, Default)]
 pub struct CompileOptions {
     /// File path, used in error messages.
     pub filepath: Option<String>,
     /// Inject `data-line` attributes for scroll sync.
     pub source_lines: bool,
+    /// Cut pages with `type: slides` into slides. Otherwise they compile as ordinary pages.
+    pub slides: bool,
 }
 
 #[derive(Debug, Clone, Serialize)]
 pub struct CompileOutput {
     /// ESM module. Imports `react/jsx-runtime`; default export is `MDXContent`.
     pub code: String,
+    /// Present when the module renders a slide deck.
+    pub slides: Option<Deck>,
 }
 
 pub fn options(filepath: Option<String>) -> Options {
@@ -52,6 +62,8 @@ pub fn compile(source: &str, opts: &CompileOptions) -> Result<CompileOutput, Dia
     if opts.source_lines {
         annotate_source_lines(&mut hast);
     }
+    // After annotating, so the elements inside each slide keep their line numbers.
+    let slides = opts.slides.then(|| slides::split(&mdast, &mut hast)).flatten();
 
     let location = Location::new(source.as_bytes());
     let mut explicit_jsxs = Default::default();
@@ -59,7 +71,7 @@ pub fn compile(source: &str, opts: &CompileOptions) -> Result<CompileOutput, Dia
     mdxjs::mdx_plugin_recma_document(&mut program, &options, Some(&location)).map_err(err)?;
     mdxjs::mdx_plugin_recma_jsx_rewrite(&mut program, &options, Some(&location), &explicit_jsxs).map_err(err)?;
 
-    Ok(CompileOutput { code: program.serialize() })
+    Ok(CompileOutput { code: program.serialize(), slides })
 }
 
 /// Add `data-line` / `data-line-end` (1-based) to every top-level HTML element, and wrap every
