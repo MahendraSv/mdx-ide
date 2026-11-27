@@ -41,6 +41,6 @@
 - Real-time co-editing (yrs + y-codemirror.next, or Loro) with presence
 - Review comments stored outside the MDX (sidecar JSON or Git notes)
 - Opt-in AI assist (rewrite, frontmatter descriptions, component suggestions) with a configurable or self-hosted provider
-- Export to HTML/PDF through the preview pipeline
+- ✅ PDF export on macOS (keeps component state). ☐ PDF on Windows / Linux, page options (paper size, headers), HTML export
 - Doc analytics: stale docs, CODEOWNERS, component coverage
 - Linux: move to Tauri 3's CEF runtime once stable

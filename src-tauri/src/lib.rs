@@ -3,6 +3,7 @@
 //! The heavy lifting lives in `crates/`; this layer only adapts it to IPC.
 
 mod commands;
+mod export;
 mod git;
 mod preview_protocol;
 mod watcher;
@@ -35,6 +36,10 @@ fn guarded_menu(app: &tauri::AppHandle) -> tauri::Result<tauri::menu::Menu<tauri
 pub struct AppState {
     pub workspace: Mutex<Option<Workspace>>,
     pub watcher: Mutex<Option<watcher::WatcherHandle>>,
+    /// The page the hidden PDF export window is printing.
+    pub print_document: Mutex<Option<String>>,
+    /// Held for the duration of an export.
+    pub exporting: tauri::async_runtime::Mutex<()>,
     /// Folder passed on the command line: `mdx-ide path/to/docs-repo`.
     pub initial_folder: Option<String>,
 }
@@ -94,6 +99,7 @@ pub fn run() {
             commands::frontmatter_schema,
             commands::save_asset,
             commands::format_mdx,
+            export::export_pdf,
             commands::lint_mdx,
         ])
         .run(tauri::generate_context!())

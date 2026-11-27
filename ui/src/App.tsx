@@ -1,5 +1,5 @@
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import { confirm, open } from "@tauri-apps/plugin-dialog";
+import { confirm, open, save as saveDialog } from "@tauri-apps/plugin-dialog";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { api, onWorkspaceChanged, type Blame, type Branch, type ChangedFile, type Diagnostic, type DocumentAnalysis, type WorkspaceInfo } from "./api";
 import { Editor, type EditorHandle } from "./editor/Editor";
@@ -50,13 +50,33 @@ function dragFrom(e: React.PointerEvent<HTMLElement>, onMove: (dx: number, dy: n
   const { clientX, clientY, pointerId } = e;
   const move = (ev: PointerEvent) => onMove(ev.clientX - clientX, ev.clientY - clientY);
   const end = () => {
+    document.body.classList.remove("resizing");
     handle.removeEventListener("pointermove", move);
     handle.removeEventListener("lostpointercapture", end);
   };
+  // The preview is a separate frame: while dragging it must not swallow the pointer.
+  document.body.classList.add("resizing");
   handle.setPointerCapture(pointerId);
   handle.addEventListener("pointermove", move);
   handle.addEventListener("lostpointercapture", end);
 }
+
+const SPLIT_KEY = "mdx-ide.split";
+const DEFAULT_SPLIT = 0.5;
+/** Neither side of the split may get narrower than this, in pixels. */
+const MIN_PANE = 240;
+/** The editor's share of the split, kept as a ratio so it survives window resizing. */
+const clampSplit = (ratio: number, width: number) => {
+  const min = width > 0 ? Math.min(0.5, MIN_PANE / width) : 0.2;
+  return Math.min(1 - min, Math.max(min, ratio));
+};
+const initialSplit = () => {
+  try {
+    const v = Number(localStorage.getItem(SPLIT_KEY));
+    if (v > 0 && v < 1) return v;
+  } catch {}
+  return DEFAULT_SPLIT;
+};
 
 const PROBLEMS_KEY = "mdx-ide.problems";
 const DEFAULT_PROBLEMS_HEIGHT = 150;
@@ -155,6 +175,12 @@ export default function App() {
   const [diffMode, setDiffMode] = useState<DiffMode>("source");
   const diffRef = useRef(diff);
   diffRef.current = diff;
+  /** The preview fills the screen. */
+  const [presenting, setPresenting] = useState(false);
+  /** Whether the window was already full screen, so leaving restores what was there. */
+  const wasFullscreen = useRef(false);
+  const [exporting, setExporting] = useState(false);
+  const exitButton = useRef<HTMLButtonElement>(null);
   const [commitMessage, setCommitMessage] = useState("");
   const [gitBusy, setGitBusy] = useState(false);
   const [gitActivity, setGitActivity] = useState<RemoteActivity | null>(null);
@@ -168,6 +194,14 @@ export default function App() {
   const [typed, setTyped] = useState(0);
   // The preview loads the team's component bundle once, when it starts. Bumping this restarts it.
   const [previewGeneration, setPreviewGeneration] = useState(0);
+  const [split, setSplit] = useState(initialSplit);
+  const splitRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    try {
+      localStorage.setItem(SPLIT_KEY, String(split));
+    } catch {}
+  }, [split]);
+  const splitWidth = () => splitRef.current?.getBoundingClientRect().width ?? 0;
   const [device, setDevice] = useState<Device>(initialDevice);
   useEffect(() => {
     try {
@@ -760,6 +794,89 @@ export default function App() {
     return () => void unlisten.then((f) => f());
   }, []);
 
+  /** Show only the preview, filling the screen. The preview is not reloaded, so components keep their state. */
+  const present = async () => {
+    if (!pathRef.current || presenting) return;
+    setDiff(null);
+    setPresenting(true);
+    preview.current?.setCursor(0); // no editor cursor outline while presenting
+    try {
+      const window_ = getCurrentWindow();
+      wasFullscreen.current = await window_.isFullscreen();
+      if (!wasFullscreen.current) await window_.setFullscreen(true);
+    } catch (e) {
+      setError(`Could not make the window full screen: ${String(e)}`);
+    }
+  };
+
+  const stopPresenting = async () => {
+    setPresenting(false);
+    preview.current?.setCursor(cursor.line);
+    requestAnimationFrame(() => editor.current?.focus());
+    try {
+      if (!wasFullscreen.current) await getCurrentWindow().setFullscreen(false);
+    } catch (e) {
+      setError(`Could not leave full screen: ${String(e)}`);
+    }
+  };
+
+  useEffect(() => {
+    if (presenting) exitButton.current?.focus();
+  }, [presenting]);
+  useEffect(() => {
+    if (presenting && !path) void stopPresenting();
+  }, [path]);
+
+  // Escape leaves full screen; ⌘⇧Enter / Ctrl+Shift+Enter toggles it.
+  const shortcuts = useRef<{ escape(): boolean; present(): void }>({ escape: () => false, present: () => {} });
+  shortcuts.current = {
+    escape: () => {
+      // An open palette closes first.
+      if (!presenting || palette || branches || moving) return false;
+      void stopPresenting();
+      return true;
+    },
+    present: () => void (presenting ? stopPresenting() : present()),
+  };
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape" && shortcuts.current.escape()) {
+        e.preventDefault();
+        e.stopPropagation();
+      } else if (e.key === "Enter" && e.shiftKey && (e.metaKey || e.ctrlKey) && !e.altKey) {
+        e.preventDefault();
+        e.stopPropagation();
+        shortcuts.current.present();
+      }
+    };
+    window.addEventListener("keydown", onKey, true);
+    return () => window.removeEventListener("keydown", onKey, true);
+  }, []);
+
+  /** Write the page, as it currently looks in the preview, to a PDF the user chooses. */
+  const exportPdf = async () => {
+    const page = pathRef.current;
+    if (!page || exporting) return;
+    if (compileError || runtimeError) {
+      setToast(errorToast(++toastId.current, "Export failed", "Fix the error shown in the preview first, so the PDF matches the page."));
+      return;
+    }
+    setExporting(true);
+    try {
+      // Captured now, so the PDF shows what was on screen when export was chosen.
+      const snapshot = await preview.current!.snapshot();
+      const name = page.slice(page.lastIndexOf("/") + 1).replace(/\.mdx$/i, "");
+      const target = await saveDialog({ title: "Export to PDF", defaultPath: `${name}.pdf`, filters: [{ name: "PDF", extensions: ["pdf"] }] });
+      if (!target) return;
+      await api.exportPdf(snapshot, name, target);
+      setToast({ id: ++toastId.current, kind: "ok", title: "Exported to PDF", detail: target.slice(target.lastIndexOf("/") + 1) });
+    } catch (e) {
+      setToast(errorToast(++toastId.current, "Export failed", e instanceof Error ? e.message : e));
+    } finally {
+      setExporting(false);
+    }
+  };
+
   // Tab shortcuts: ⌘W / Ctrl+W closes, Ctrl+Tab / Ctrl+Shift+Tab cycles.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -875,6 +992,12 @@ export default function App() {
     { id: "view-code", label: "View: Code", run: () => setView("code") },
     { id: "view-split", label: "View: Split", run: () => setView("split") },
     { id: "view-preview", label: "View: Preview", run: () => setView("preview") },
+    ...(path
+      ? [
+          { id: "present", label: presenting ? "Preview: Exit full screen" : "Preview: Full screen", hint: "⌘⇧↵", run: () => shortcuts.current.present() },
+          { id: "export-pdf", label: "Export to PDF…", run: () => void exportPdf() },
+        ]
+      : []),
     { id: "device-desktop", label: "Preview: Desktop width", run: () => setDevice("desktop") },
     { id: "device-mobile", label: "Preview: Mobile width", run: () => setDevice("mobile") },
     { id: "theme-light", label: "Theme: Light", run: () => setTheme("light") },
@@ -898,7 +1021,7 @@ export default function App() {
 
   return (
     <div className="app">
-      <header className="titlebar">
+      <header className="titlebar" inert={presenting}>
         <div className="brand">
           <div className="brand-mark">
             <Icon size={14} sw={2.6}><path d="M4 18V6l5 6 5-6v12" /><path d="M18 9v9" /><path d="M15.5 15.5 18 18l2.5-2.5" /></Icon>
@@ -927,7 +1050,7 @@ export default function App() {
         </div>
       </header>
 
-      <div className="banners">
+      <div className="banners" inert={presenting}>
         {error && (
           <div className="error-bar" role="alert" onClick={() => setError(null)}>
             {error} <span className="dir">(click to dismiss)</span>
@@ -951,7 +1074,7 @@ export default function App() {
       </div>
 
       <div className="body">
-        <nav className="rail" aria-label="Activity">
+        <nav className="rail" aria-label="Activity" inert={presenting}>
           {railBtn("files", "Explorer", <Icon><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z" /><path d="M14 3v5h5" /></Icon>)}
           {railBtn("search", "Search", <Icon><circle cx="11" cy="11" r="7" /><path d="m20 20-3.5-3.5" /></Icon>)}
           {railBtn("components", "Components", <Icon><rect x="3" y="3" width="7" height="7" rx="1.5" /><rect x="14" y="3" width="7" height="7" rx="1.5" /><rect x="3" y="14" width="7" height="7" rx="1.5" /><rect x="14" y="14" width="7" height="7" rx="3.5" /></Icon>)}
@@ -965,7 +1088,7 @@ export default function App() {
           )}
         </nav>
 
-        <aside className="sidebar" style={{ width: sidebarWidth }} hidden={!sidebarOpen} aria-label={SIDE_TITLES[tab]}>
+        <aside className="sidebar" style={{ width: sidebarWidth }} hidden={!sidebarOpen} inert={presenting} aria-label={SIDE_TITLES[tab]}>
           <div className="side-head">
             <span className="eyebrow">{SIDE_TITLES[tab]}</span>
             <span className="side-actions">
@@ -1078,7 +1201,7 @@ export default function App() {
         </aside>
 
         <main className="main">
-          <div className="tabbar">
+          <div className="tabbar" inert={presenting}>
             <TabStrip tabs={tabs} active={diff ? null : path} dirty={dirtyPaths} onSelect={(p) => (p !== path ? activate(p) : setDiff(null))} onClose={(p) => void closeTab(p)} />
             {hasFmPanel && !diff && (
               <button type="button" className="btn-ghost fm-btn" aria-expanded={fmOpen} aria-controls="frontmatter-panel" onClick={() => setFmOpen((o) => !o)}>
@@ -1133,8 +1256,8 @@ export default function App() {
           )}
 
           {/* Hidden, not removed, while a diff is shown: the editor keeps its state. */}
-          <div className="split" hidden={!!diff}>
-            <section className={`editor-pane${showPreview ? "" : " only"}`} aria-label="MDX source" hidden={!showEditor}>
+          <div className="split" ref={splitRef} hidden={!!diff}>
+            <section className="editor-pane" aria-label="MDX source" hidden={!showEditor} inert={presenting} style={view === "split" ? { flexGrow: split * 100 } : undefined}>
               {path && activeBuffer ? (
                 <>
                   <div className="crumbs">
@@ -1177,10 +1300,35 @@ export default function App() {
               )}
             </section>
 
-            <section className="preview-pane" aria-label="Preview" hidden={!showPreview}>
+            {view === "split" && (
+              <div
+                className="split-divider"
+                role="separator"
+                aria-orientation="vertical"
+                aria-label="Resize editor and preview"
+                aria-valuenow={Math.round(split * 100)}
+                aria-valuemin={0}
+                aria-valuemax={100}
+                tabIndex={presenting ? -1 : 0}
+                title="Drag to resize. Double-click for equal halves."
+                onPointerDown={(e) => {
+                  const width = splitWidth();
+                  const start = clampSplit(split, width);
+                  dragFrom(e, (dx) => setSplit(clampSplit(start + dx / width, width)));
+                }}
+                onDoubleClick={() => setSplit(DEFAULT_SPLIT)}
+                onKeyDown={(e) => {
+                  if (e.key !== "ArrowLeft" && e.key !== "ArrowRight") return;
+                  e.preventDefault();
+                  setSplit((s) => clampSplit(s + (e.key === "ArrowRight" ? 0.02 : -0.02), splitWidth()));
+                }}
+              />
+            )}
+
+            <section className={`preview-pane${presenting ? " presenting" : ""}`} aria-label="Preview" hidden={!showPreview && !presenting} style={view === "split" ? { flexGrow: (1 - split) * 100 } : undefined}>
               <div className="preview-head">
                 <span className="live-label"><span className={`live${compileError || runtimeError ? " bad" : ""}`} />{compileError || runtimeError ? "Preview error" : "Live preview"}</span>
-                {view === "split" && <span>Scroll synced</span>}
+                {view === "split" && <span className="scroll-synced">Scroll synced</span>}
                 <span className="sp" />
                 <div role="group" aria-label="Preview width" className="device">
                   <button type="button" aria-label="Desktop width" aria-pressed={device === "desktop"} onClick={() => setDevice("desktop")}>
@@ -1188,6 +1336,21 @@ export default function App() {
                   </button>
                   <button type="button" aria-label="Mobile width" aria-pressed={device === "mobile"} onClick={() => setDevice("mobile")}>
                     <Icon size={14} sw={2}><rect x="7" y="3" width="10" height="18" rx="2" /></Icon>
+                  </button>
+                </div>
+                <div className="device">
+                  <button type="button" aria-label="Export to PDF" title="Export to PDF" aria-busy={exporting || undefined} disabled={!path || exporting} onClick={() => void exportPdf()}>
+                    {exporting ? <span className="sc-spinner" aria-hidden="true" /> : <Icon size={14} sw={2}><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8zM14 3v5h5M12 11v6M9 14l3 3 3-3" /></Icon>}
+                  </button>
+                  <button
+                    ref={exitButton}
+                    type="button"
+                    aria-label={presenting ? "Exit full screen" : "Full screen preview"}
+                    title={presenting ? "Exit full screen (Esc)" : "Full screen preview (⌘⇧↵)"}
+                    disabled={!path}
+                    onClick={() => shortcuts.current.present()}
+                  >
+                    <Icon size={14} sw={2}><path d={presenting ? "M8 3v5H3M16 21v-5h5M21 8h-5V3M3 16h5v5" : "M3 8V3h5M21 16v5h-5M16 3h5v5M8 21H3v-5"} /></Icon>
                   </button>
                 </div>
               </div>
@@ -1209,14 +1372,17 @@ export default function App() {
                   ref={preview}
                   dark={dark}
                   onLoadError={(m) => setError(`Preview could not load your components: ${m}`)}
-                  onRuntimeError={setRuntimeError} onSourceClick={(l) => editor.current?.gotoLine(l)} />
+                  onRuntimeError={setRuntimeError}
+                  onShortcut={(key) => (key === "escape" ? void shortcuts.current.escape() : shortcuts.current.present())}
+                  onSourceClick={(l) => !presenting && editor.current?.gotoLine(l)}
+                />
               </div>
             </section>
           </div>
         </main>
       </div>
 
-      <section className="bottom" aria-label="Problems" style={{ height: problemsOpen ? problemsHeight : undefined }}>
+      <section className="bottom" aria-label="Problems" inert={presenting} style={{ height: problemsOpen ? problemsHeight : undefined }}>
         {problemsOpen && (
           <div
             className="resizer"
@@ -1305,7 +1471,7 @@ export default function App() {
 
       {!panelShown && <div className="toast-floating">{toastView}</div>}
 
-      <footer className="status">
+      <footer className="status" inert={presenting}>
         {git.status && (
           <button type="button" className="status-branch" aria-label={`Branch ${git.status.branch ?? git.status.head}. Switch or create a branch`} title="Switch or create a branch" disabled={gitBusy} onClick={() => void openBranches()}>
             <Icon size={13} sw={2}><circle cx="6" cy="5" r="2" /><circle cx="6" cy="19" r="2" /><circle cx="18" cy="8" r="2" /><path d="M6 7v10M18 10c0 4-6 3-12 7" /></Icon>

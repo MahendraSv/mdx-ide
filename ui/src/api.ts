@@ -104,6 +104,7 @@ export interface Blame {
 }
 
 export const api = {
+  exportPdf: (snapshot: { body: string; styles: string; theme: string }, title: string, path: string) => invoke<void>("export_pdf", { snapshot, title, path }),
   gitStatus: () => invoke<GitStatus | null>("git_status"),
   gitStage: (paths: string[]) => invoke<void>("git_stage", { paths }),
   gitUnstage: (paths: string[]) => invoke<void>("git_unstage", { paths }),

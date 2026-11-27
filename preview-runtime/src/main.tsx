@@ -3,6 +3,7 @@ import { createRoot } from "react-dom/client";
 import { builtinComponents } from "./components";
 import { importFromSource, registerTeamPackage } from "./modules";
 import type { FromPreview, ToPreview } from "./protocol";
+import { takeSnapshot } from "./snapshot";
 import "@fontsource/inter/400.css";
 import "@fontsource/inter/600.css";
 import "@fontsource/jetbrains-mono/400.css";
@@ -17,6 +18,9 @@ let components: Record<string, unknown> = { ...builtinComponents };
 let currentVersion = 0;
 let docPath = "";
 let cursorLine = 0;
+/** What is on screen, if it rendered without error. Rendering it again would only reset
+ *  component state (the selected tab, an opened section), which PDF export must keep. */
+let shown: { code: string; docPath: string } | null = null;
 
 function post(msg: FromPreview) {
   // The parent is the editor window. Our origin is opaque (sandboxed), and the
@@ -67,6 +71,7 @@ class ErrorBoundary extends Component<{ version: number; children: ReactNode }, 
     return { error };
   }
   componentDidCatch(error: Error, _info: ErrorInfo) {
+    shown = null;
     post({ type: "error", version: this.props.version, message: error.message, stack: error.stack });
   }
   render() {
@@ -130,6 +135,11 @@ new MutationObserver(() => {
 
 async function render(msg: Extract<ToPreview, { type: "render" }>) {
   currentVersion = msg.version;
+  // e.g. after saving: the same module for the same page.
+  if (shown && shown.code === msg.code && shown.docPath === msg.docPath) {
+    post({ type: "rendered", version: msg.version });
+    return;
+  }
   // Keep the scroll position while editing one file; start at the top of a different one.
   const scrollY = msg.docPath === docPath ? window.scrollY : 0;
   docPath = msg.docPath;
@@ -145,6 +155,7 @@ async function render(msg: Extract<ToPreview, { type: "render" }>) {
         </article>
       </ErrorBoundary>,
     );
+    shown = { code: msg.code, docPath: msg.docPath };
     requestAnimationFrame(() => window.scrollTo(0, scrollY));
     post({ type: "rendered", version: msg.version });
   } catch (e) {
@@ -172,6 +183,16 @@ document.addEventListener("click", (e) => {
   post({ type: "click", line: Number(el.dataset.line) });
 });
 
+// Keys pressed inside the preview never reach the editor window, so forward the ones it needs.
+window.addEventListener("keydown", (e) => {
+  // A component that used the key (closing its own pop-up, say) marks it as handled.
+  if (e.defaultPrevented) return;
+  const key = e.key === "Escape" ? "escape" : e.key === "Enter" && e.shiftKey && (e.metaKey || e.ctrlKey) ? "present" : null;
+  if (!key) return;
+  e.preventDefault();
+  post({ type: "shortcut", key });
+});
+
 window.addEventListener("message", (event: MessageEvent<ToPreview>) => {
   if (event.source !== window.parent) return;
   const msg = event.data;
@@ -191,8 +212,14 @@ window.addEventListener("message", (event: MessageEvent<ToPreview>) => {
       scrolledToChange = false;
       highlightChanges();
       break;
+    case "snapshot": {
+      const page = takeSnapshot();
+      post({ type: "snapshot", id: msg.id, ...(page ?? { body: "", styles: "", theme: "light" }) });
+      break;
+    }
     case "clear":
       currentVersion = -1; // discard any render still importing
+      shown = null;
       docPath = "";
       root.render(null);
       break;

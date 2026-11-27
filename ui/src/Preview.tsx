@@ -9,6 +9,14 @@ export interface PreviewHandle {
   /** Rendered diff: mark changed blocks. */
   markChanges(kind: "added" | "removed", ranges: [number, number][]): void;
   clear(): void;
+  /** A static copy of the page as it currently looks. */
+  snapshot(): Promise<PreviewSnapshot>;
+}
+
+export interface PreviewSnapshot {
+  body: string;
+  styles: string;
+  theme: string;
 }
 
 interface Props {
@@ -16,12 +24,13 @@ interface Props {
   onRuntimeError(message: string | null): void;
   onSourceClick?(line: number): void;
   onLoadError?(message: string): void;
+  onShortcut?(key: "escape" | "present"): void;
 }
 
 // Served by src-tauri/src/preview_protocol.rs on its own origin.
 const PREVIEW_URL = convertFileSrc("", "mdxpreview");
 
-export const Preview = forwardRef<PreviewHandle, Props>(function Preview({ dark, onRuntimeError, onSourceClick, onLoadError }, ref) {
+export const Preview = forwardRef<PreviewHandle, Props>(function Preview({ dark, onRuntimeError, onSourceClick, onLoadError, onShortcut }, ref) {
   const frame = useRef<HTMLIFrameElement>(null);
   const [ready, setReady] = useState(false);
   const version = useRef(0);
@@ -34,6 +43,10 @@ export const Preview = forwardRef<PreviewHandle, Props>(function Preview({ dark,
   onClick.current = onSourceClick;
   const onLoad = useRef(onLoadError);
   onLoad.current = onLoadError;
+  const shortcut = useRef(onShortcut);
+  shortcut.current = onShortcut;
+  const snapshots = useRef(new Map<number, (s: PreviewSnapshot) => void>());
+  const snapshotId = useRef(0);
 
   const send = (msg: ToPreview) => {
     // Sandboxed iframe → opaque origin → target "*" is the only option; we never send secrets.
@@ -51,6 +64,10 @@ export const Preview = forwardRef<PreviewHandle, Props>(function Preview({ dark,
         if (changes.current) send(changes.current);
       } else if (msg.type === "load-error") {
         onLoad.current?.(msg.message);
+      } else if (msg.type === "snapshot") {
+        snapshots.current.get(msg.id)?.({ body: msg.body, styles: msg.styles, theme: msg.theme });
+      } else if (msg.type === "shortcut") {
+        shortcut.current?.(msg.key);
       } else if (msg.type === "click") {
         onClick.current?.(msg.line);
       } else if (msg.type === "rendered" && msg.version === version.current) {
@@ -83,6 +100,24 @@ export const Preview = forwardRef<PreviewHandle, Props>(function Preview({ dark,
     markChanges(kind, ranges) {
       changes.current = { type: "changes", kind, ranges };
       if (ready) send(changes.current);
+    },
+    snapshot() {
+      const id = ++snapshotId.current;
+      return new Promise<PreviewSnapshot>((resolve, reject) => {
+        // A component stuck in a loop would never answer.
+        const timer = window.setTimeout(() => {
+          snapshots.current.delete(id);
+          reject(new Error("the preview did not respond"));
+        }, 10_000);
+        snapshots.current.set(id, (s) => {
+          window.clearTimeout(timer);
+          snapshots.current.delete(id);
+          if (s.body) resolve(s);
+          else reject(new Error("the preview has not finished showing the page. Try again in a moment"));
+        });
+        if (ready) send({ type: "snapshot", id });
+        else reject(new Error("the preview is still loading"));
+      });
     },
     clear() {
       pending.current = null;
