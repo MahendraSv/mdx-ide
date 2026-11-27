@@ -2347,8 +2347,6 @@ dependencies = [
  "mdx-syntax",
  "mdxjs",
  "serde",
- "serde_yaml",
- "toml 0.8.2",
 ]
 
 [[package]]
@@ -2376,6 +2374,7 @@ dependencies = [
  "mdx-core",
  "mdx-git",
  "mdx-intel",
+ "mdx-syntax",
  "mdx-workspace",
  "mime_guess",
  "notify-debouncer-mini",
@@ -2411,6 +2410,8 @@ version = "0.1.0"
 dependencies = [
  "markdown",
  "mdx-core",
+ "serde_yaml",
+ "toml 0.8.2",
 ]
 
 [[package]]

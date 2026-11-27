@@ -11,6 +11,8 @@ export interface Snapshot {
   /** CSS added at run time (e.g. by CSS-in-JS). Linked stylesheets are loaded again instead. */
   styles: string;
   theme: string;
+  /** The page is a slide deck: it prints one slide per page. */
+  slides: boolean;
 }
 
 const REMOVE = "script, noscript, iframe, frame, object, embed, meta, base, link";
@@ -25,6 +27,12 @@ export function takeSnapshot(source: HTMLElement = document.body): Snapshot | nu
   originals.forEach((original, i) => syncState(original, copies[i]));
 
   copy.querySelectorAll(REMOVE).forEach((el) => el.remove());
+  // Slides print complete: every step shown, without speaker notes or overview buttons.
+  copy.querySelectorAll(".mdx-ide-pick, .mdx-ide-notes").forEach((el) => el.remove());
+  for (const el of copy.querySelectorAll(".mdx-ide-slide, .mdx-ide-step")) {
+    el.removeAttribute("data-pending");
+    el.removeAttribute("inert");
+  }
   for (const el of copy.querySelectorAll("*")) {
     for (const { name, value } of Array.from(el.attributes)) {
       if (name.startsWith("on") || (/^(href|src|action|formaction|xlink:href)$/i.test(name) && /^\s*javascript:/i.test(value))) el.removeAttribute(name);
@@ -33,7 +41,8 @@ export function takeSnapshot(source: HTMLElement = document.body): Snapshot | nu
     el.classList.remove("mdx-ide-active", "mdx-ide-added", "mdx-ide-removed");
     el.removeAttribute("data-label");
   }
-  return { body: copy.innerHTML, styles: runtimeStyles(), theme: document.documentElement.dataset.theme ?? "light" };
+  const slides = !!copy.querySelector(".mdx-ide-deck");
+  return { body: copy.innerHTML, styles: runtimeStyles(), theme: document.documentElement.dataset.theme ?? "light", slides };
 }
 
 function syncState(original: Element, copy: Element) {
@@ -71,7 +80,8 @@ function replaceWithImage(original: Element, copy: Element, read: () => string) 
   image.src = url;
   image.className = original.getAttribute("class") ?? "";
   const style = original.getAttribute("style");
-  const { width, height } = original.getBoundingClientRect();
+  // The layout size: a slide is scaled on screen, which the copy must not be.
+  const { offsetWidth: width, offsetHeight: height } = original as HTMLElement;
   // Keep the on-screen size (a hidden preview measures zero; the picture's own size then applies).
   image.setAttribute("style", `${style ? `${style};` : ""}${width ? `width:${width}px;height:${height}px;` : ""}`);
   if (original instanceof HTMLImageElement) image.alt = original.alt;

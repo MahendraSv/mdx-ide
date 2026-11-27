@@ -4,9 +4,15 @@ description: A short deck that shows interactive components on slides
 type: slides
 ---
 
+<Slide layout="center" />
+
 # Slides in MDX IDE
 
 Press **⌘⇧↵** to present, then use the arrow keys.
+
+<Notes>
+  These are speaker notes. The audience does not see them.
+</Notes>
 
 ---
 
@@ -23,12 +29,37 @@ Press **⌘⇧↵** to present, then use the arrow keys.
 
 ---
 
+## Side by side
+
+<Columns>
+  <Column>
+    ### Writing
+
+    One page holds the whole deck.
+  </Column>
+  <Column>
+    ### Presenting
+
+    Components stay interactive.
+  </Column>
+</Columns>
+
+---
+
+## One step at a time
+
+<Step>This point appears with the first key press.</Step>
+
+<Step>This one appears with the next.</Step>
+
+---
+
 ## Keys
 
 | Key | Action |
 |---|---|
-| → or Space | Next slide |
-| ← | Previous slide |
+| → or Space | Next step or slide |
+| ← | Back |
 | G | All slides |
 | R | Reset this slide |
 | Esc | Stop presenting |

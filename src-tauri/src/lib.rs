@@ -93,6 +93,7 @@ pub fn run() {
             commands::analyze,
             commands::compile_preview,
             commands::search,
+            commands::slide_components,
             commands::complete_components,
             commands::complete_props,
             commands::complete_prop_values,

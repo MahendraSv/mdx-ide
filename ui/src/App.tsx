@@ -1,10 +1,10 @@
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { confirm, open, save as saveDialog } from "@tauri-apps/plugin-dialog";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { api, onWorkspaceChanged, type Blame, type Branch, type ChangedFile, type Diagnostic, type DocumentAnalysis, type WorkspaceInfo, type PreviewPage } from "./api";
+import { api, onWorkspaceChanged, type Blame, type Branch, type ChangedFile, type Diagnostic, type DocumentAnalysis, type WorkspaceInfo, type PreviewPage, type ComponentSpec } from "./api";
 import { Editor, type EditorHandle } from "./editor/Editor";
 import { canMove, Explorer, NewFileIcon, NewFolderIcon, type Draft, type Entry, type EntryKind } from "./panels/Explorer";
-import { Outline, Palette, Problems, Search } from "./panels/Panels";
+import { Outline, Palette, Problems, Search, SlideList, type SlideIssue } from "./panels/Panels";
 import { CommandPalette, type PaletteCommand } from "./CommandPalette";
 import { FrontmatterPanel } from "./FrontmatterPanel";
 import { TabStrip } from "./TabStrip";
@@ -15,7 +15,7 @@ import { explorerMarks, workspacePath, type DiffTarget } from "./git/model";
 import { useGit } from "./git/useGit";
 import { Preview, type PreviewHandle } from "./Preview";
 import type { SlideState } from "./preview-protocol";
-import { presentationKey, SlideNav } from "./Slides";
+import { presentationKey, SlideNav, withSlideTags } from "./Slides";
 
 type SideTab = "files" | "search" | "components" | "git";
 const SIDE_TITLES: Record<SideTab, string> = { files: "Explorer", search: "Search", components: "Components", git: "Source control" };
@@ -134,6 +134,11 @@ export default function App() {
   const [runtimeError, setRuntimeError] = useState<string | null>(null);
   /** Set while the preview shows a slide deck. */
   const [slides, setSlides] = useState<SlideState | null>(null);
+  /** Documentation for the tags built into slide decks. */
+  const [slideTags, setSlideTags] = useState<ComponentSpec[]>([]);
+  useEffect(() => {
+    api.slideComponents().then(setSlideTags, (e) => setError(String(e)));
+  }, []);
   const [tab, setTab] = useState<SideTab>("files");
   const [view, setView] = useState<ViewMode>("split");
   const [theme, setTheme] = useState<Theme>(initialTheme);
@@ -426,11 +431,11 @@ export default function App() {
     }
   };
 
-  const startDraft = (kind: EntryKind, parent?: string) => {
+  const startDraft = (kind: EntryKind, parent?: string, slides?: boolean) => {
     const open = pathRef.current;
     const dir = parent ?? selectedDir ?? (open?.includes("/") ? open.slice(0, open.lastIndexOf("/")) : "");
     showSide("files");
-    setDraft({ kind, parent: dir });
+    setDraft({ kind, parent: dir, slides });
   };
 
   /** Create the named file or folder; returns an error message to show under the field. */
@@ -446,7 +451,7 @@ export default function App() {
       } else {
         if (/\.(md|txt|tsx?|jsx?|json|ya?ml|html?|css)$/i.test(name)) return "Only .mdx files can be created";
         const file = /\.mdx$/i.test(relative) ? relative.replace(/\.mdx$/i, ".mdx") : `${relative}.mdx`;
-        const created = await api.createFile(file, new Date().toLocaleDateString("en-CA"));
+        const created = await api.createFile(file, new Date().toLocaleDateString("en-CA"), !!draft.slides);
         setWs(await api.listFiles());
         setDraft(null);
         await openFile(created, 1);
@@ -873,23 +878,26 @@ export default function App() {
   const exportPdf = async () => {
     const page = pathRef.current;
     if (!page || exporting) return;
-    if (buffers.current.get(page)?.page?.slides) {
-      setToast(errorToast(++toastId.current, "Export failed", "PDF export for slide decks is not available yet."));
-      return;
-    }
     if (compileError || runtimeError) {
       setToast(errorToast(++toastId.current, "Export failed", "Fix the error shown in the preview first, so the PDF matches the page."));
+      return;
+    }
+    if (slides?.errors.length) {
+      setToast(errorToast(++toastId.current, "Export failed", "Fix the slide errors listed in Problems first, so the PDF matches the deck."));
       return;
     }
     setExporting(true);
     try {
       // Captured now, so the PDF shows what was on screen when export was chosen.
+      const cut = slides?.overflow.map((slide) => slide + 1) ?? [];
       const snapshot = await preview.current!.snapshot();
       const name = page.slice(page.lastIndexOf("/") + 1).replace(/\.mdx$/i, "");
       const target = await saveDialog({ title: "Export to PDF", defaultPath: `${name}.pdf`, filters: [{ name: "PDF", extensions: ["pdf"] }] });
       if (!target) return;
       await api.exportPdf(snapshot, name, target);
-      setToast({ id: ++toastId.current, kind: "ok", title: "Exported to PDF", detail: target.slice(target.lastIndexOf("/") + 1) });
+      const saved = target.slice(target.lastIndexOf("/") + 1);
+      const warning = cut.length ? `. Content is cut off on ${cut.length === 1 ? "slide" : "slides"} ${cut.join(", ")}` : "";
+      setToast({ id: ++toastId.current, kind: "ok", title: "Exported to PDF", detail: saved + warning });
     } catch (e) {
       setToast(errorToast(++toastId.current, "Export failed", e instanceof Error ? e.message : e));
     } finally {
@@ -965,10 +973,14 @@ export default function App() {
   }, [previewGeneration]);
 
   const diagnostics = [...(compileError ? [compileError] : []), ...analysis.diagnostics, ...lintDiags];
-  const deckStarts = path ? (buffers.current.get(path)?.page?.slides?.starts ?? []) : [];
-  const slideErrors = (slides?.errors ?? []).map((e) => ({ line: deckStarts[e.slide] ?? 1, message: `Slide ${e.slide + 1}: ${e.message}` }));
-  const errors = diagnostics.filter((d) => d.severity === "error").length + (runtimeError ? 1 : 0) + slideErrors.length;
-  const warnings = diagnostics.filter((d) => d.severity === "warning").length;
+  /** The active page as a slide deck, from its last successful compile. */
+  const deck = path ? (buffers.current.get(path)?.page?.slides ?? null) : null;
+  const slideIssues: SlideIssue[] = [
+    ...(slides?.errors ?? []).map((e) => ({ line: deck?.starts[e.slide] ?? 1, message: `Slide ${e.slide + 1}: ${e.message}`, severity: "error" as const })),
+    ...(slides?.overflow ?? []).map((slide) => ({ line: deck?.starts[slide] ?? 1, message: `Slide ${slide + 1}: the content does not fit. It scrolls on screen and is cut off in the PDF.`, severity: "warning" as const })),
+  ];
+  const errors = diagnostics.filter((d) => d.severity === "error").length + (runtimeError ? 1 : 0) + slideIssues.filter((i) => i.severity === "error").length;
+  const warnings = [...diagnostics, ...slideIssues].filter((d) => d.severity === "warning").length;
   const problems = errors + warnings;
   const fileName = path ? path.slice(path.lastIndexOf("/") + 1) : null;
   const activeBuffer = path ? buffers.current.get(path) : undefined;
@@ -984,6 +996,7 @@ export default function App() {
   const commands: PaletteCommand[] = [
     { id: "open-folder", label: "Open folder…", run: () => void openFolder() },
     { id: "new-file", label: "New file…", run: () => startDraft("file") },
+    { id: "new-deck", label: "New slide deck…", run: () => startDraft("file", undefined, true) },
     { id: "new-folder", label: "New folder…", run: () => startDraft("folder") },
     ...(path
       ? [
@@ -1017,7 +1030,7 @@ export default function App() {
     ...(path
       ? [
           { id: "present", label: presenting ? "Preview: Exit full screen" : slides ? "Slides: Present" : "Preview: Full screen", hint: "⌘⇧↵", run: () => shortcuts.current.present() },
-          ...(slides ? [] : [{ id: "export-pdf", label: "Export to PDF…", run: () => void exportPdf() }]),
+          { id: "export-pdf", label: "Export to PDF…", run: () => void exportPdf() },
         ]
       : []),
     { id: "device-desktop", label: "Preview: Desktop width", run: () => setDevice("desktop") },
@@ -1163,9 +1176,13 @@ export default function App() {
                   onDropInto={(from, folder) => void dropInto(from, folder)}
                 />
                 <div className="side-section outline">
-                  <span className="eyebrow">Outline</span>
+                  <span className="eyebrow">{deck ? "Slides" : "Outline"}</span>
                 </div>
-                <Outline items={analysis.outline} onGoto={(l) => editor.current?.gotoLine(l)} />
+                {deck ? (
+                  <SlideList starts={deck.starts} titles={deck.titles} current={slides?.index ?? null} onGoto={(l) => editor.current?.gotoLine(l)} />
+                ) : (
+                  <Outline items={analysis.outline} onGoto={(l) => editor.current?.gotoLine(l)} />
+                )}
               </>
             ) : tab === "git" ? (
               <GitPanel
@@ -1304,7 +1321,7 @@ export default function App() {
                     docKey={String(activeBuffer.version)}
                     initialText={activeBuffer.text}
                     diagnostics={diagnostics}
-                    manifest={ws?.manifest}
+                    manifest={deck ? withSlideTags(ws?.manifest, slideTags) : ws?.manifest}
                     blame={blame?.path === path ? blame.value : null}
                     onChange={onChange}
                     onSave={save}
@@ -1365,11 +1382,9 @@ export default function App() {
                   </div>
                 )}
                 <div className="device">
-                  {!slides && (
-                    <button type="button" aria-label="Export to PDF" title="Export to PDF" aria-busy={exporting || undefined} disabled={!path || exporting} onClick={() => void exportPdf()}>
-                      {exporting ? <span className="sc-spinner" aria-hidden="true" /> : <Icon size={14} sw={2}><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8zM14 3v5h5M12 11v6M9 14l3 3 3-3" /></Icon>}
-                    </button>
-                  )}
+                  <button type="button" aria-label="Export to PDF" title={slides ? "Export to PDF, one slide per page" : "Export to PDF"} aria-busy={exporting || undefined} disabled={!path || exporting} onClick={() => void exportPdf()}>
+                    {exporting ? <span className="sc-spinner" aria-hidden="true" /> : <Icon size={14} sw={2}><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8zM14 3v5h5M12 11v6M9 14l3 3 3-3" /></Icon>}
+                  </button>
                   <button
                     ref={exitButton}
                     type="button"
@@ -1456,7 +1471,7 @@ export default function App() {
           </button>
         </div>
         {problemsOpen && (
-          <Problems diagnostics={diagnostics} runtimeError={runtimeError} slideErrors={slideErrors} note={lintError ? `mdxlint rules unavailable: ${lintError}` : null} onGoto={(l, c) => editor.current?.gotoLine(l, c)} />
+          <Problems diagnostics={diagnostics} runtimeError={runtimeError} slideIssues={slideIssues} note={lintError ? `mdxlint rules unavailable: ${lintError}` : null} onGoto={(l, c) => editor.current?.gotoLine(l, c)} />
         )}
       </section>
 

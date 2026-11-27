@@ -12,6 +12,7 @@ mod files;
 mod relink;
 mod search;
 
+use std::borrow::Cow;
 use std::path::{Path, PathBuf};
 
 use globset::Glob;
@@ -76,6 +77,8 @@ pub fn parse_mdxlint_report(json: &str, source: &str) -> Result<Vec<Diagnostic>,
             offset: byte_offset(p.get("offset")?.as_u64()? as usize),
         })
     };
+    // Each slide has its own title, and slides often share one ("Demo", "Questions").
+    let deck = mdx_syntax::declares_deck(source);
     let mut out = Vec::new();
     for m in files.get(0).and_then(|f| f.get("messages")).and_then(|m| m.as_array()).into_iter().flatten() {
         if m.get("fatal").and_then(|f| f.as_bool()).unwrap_or(false) {
@@ -85,6 +88,9 @@ pub fn parse_mdxlint_report(json: &str, source: &str) -> Result<Vec<Diagnostic>,
         let range =
             place.and_then(|p| Some(mdx_core::Range { start: point(p.get("start")?)?, end: point(p.get("end").or(p.get("start"))?)? }));
         let rule = m.get("ruleId").and_then(|r| r.as_str()).unwrap_or("mdxlint");
+        if deck && matches!(rule, "no-multiple-toplevel-headings" | "no-duplicate-headings") {
+            continue;
+        }
         let reason = m.get("reason").and_then(|r| r.as_str()).unwrap_or("");
         out.push(Diagnostic::new(DiagnosticSource::Mdxlint, Severity::Warning, rule, reason, range));
     }
@@ -291,8 +297,14 @@ impl Workspace {
             return analysis;
         }
 
+        let deck = mdx_syntax::is_deck(analysis.frontmatter.as_ref());
+        if deck {
+            analysis.diagnostics.extend(mdx_intel::slides::check(&analysis.outline, source));
+        }
+
         if self.config.lint.check_components {
             if let Some(manifest) = &self.manifest {
+                let manifest = if deck { Cow::Owned(mdx_intel::slides::with_slide_components(manifest)) } else { Cow::Borrowed(manifest) };
                 analysis.diagnostics.extend(manifest.check(&analysis.components, &analysis.imported_names));
             }
         }

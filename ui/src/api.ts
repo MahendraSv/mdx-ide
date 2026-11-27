@@ -4,6 +4,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import type { PreviewPage } from "./preview-protocol";
+import type { PreviewSnapshot } from "./Preview";
 
 export interface Point { line: number; column: number; offset: number }
 export interface Range { start: Point; end: Point }
@@ -14,7 +15,7 @@ export type { PreviewPage };
 export interface Diagnostic {
   range: Range | null;
   severity: Severity;
-  source: "syntax" | "compile" | "components" | "frontmatter" | "links" | "a11y" | "mdxlint";
+  source: "syntax" | "compile" | "components" | "frontmatter" | "links" | "a11y" | "mdxlint" | "slides";
   rule: string;
   message: string;
 }
@@ -107,7 +108,7 @@ export interface Blame {
 }
 
 export const api = {
-  exportPdf: (snapshot: { body: string; styles: string; theme: string }, title: string, path: string) => invoke<void>("export_pdf", { snapshot, title, path }),
+  exportPdf: (snapshot: PreviewSnapshot, title: string, path: string) => invoke<void>("export_pdf", { snapshot, title, path }),
   gitStatus: () => invoke<GitStatus | null>("git_status"),
   gitStage: (paths: string[]) => invoke<void>("git_stage", { paths }),
   gitUnstage: (paths: string[]) => invoke<void>("git_unstage", { paths }),
@@ -124,7 +125,8 @@ export const api = {
   initialFolder: () => invoke<string | null>("initial_folder"),
   openWorkspace: (path: string) => invoke<WorkspaceInfo>("open_workspace", { path }),
   listFiles: () => invoke<WorkspaceInfo>("list_files"),
-  createFile: (path: string, date: string) => invoke<string>("create_file", { path, date }),
+  /** With `slides`, the new page is a starter slide deck. */
+  createFile: (path: string, date: string, slides: boolean) => invoke<string>("create_file", { path, date, slides }),
   createFolder: (path: string) => invoke<string>("create_folder", { path }),
   renameEntry: (from: string, to: string, unsaved: Record<string, string>) => invoke<RenameReport>("rename_entry", { from, to, unsaved }),
   trashEntry: (path: string) => invoke<void>("trash_entry", { path }),
@@ -136,9 +138,12 @@ export const api = {
   compilePreview: (path: string, source: string, slides: boolean) => invoke<PreviewResult>("compile_preview", { path, source, slides }),
   search: (query: string, opts: { regex?: boolean; caseSensitive?: boolean } = {}) =>
     invoke<SearchHit[]>("search", { options: { query, ...opts } }),
-  completeComponents: () => invoke<CompletionItem[]>("complete_components"),
-  completeProps: (component: string, already: string[]) => invoke<CompletionItem[]>("complete_props", { component, already }),
-  completePropValues: (component: string, prop: string) => invoke<CompletionItem[]>("complete_prop_values", { component, prop }),
+  /** The tags built into slide decks. */
+  slideComponents: () => invoke<ComponentSpec[]>("slide_components"),
+  // `head` is the start of the document: decks are offered the slide tags too.
+  completeComponents: (head: string) => invoke<CompletionItem[]>("complete_components", { head }),
+  completeProps: (component: string, already: string[], head: string) => invoke<CompletionItem[]>("complete_props", { component, already, head }),
+  completePropValues: (component: string, prop: string, head: string) => invoke<CompletionItem[]>("complete_prop_values", { component, prop, head }),
   saveAsset: (path: string, fileName: string, bytes: number[]) => invoke<string>("save_asset", { path, fileName, bytes }),
   lintMdx: (path: string, source: string) => invoke<Diagnostic[]>("lint_mdx", { path, source }),
   formatMdx: (path: string, source: string) => invoke<string>("format_mdx", { path, source }),

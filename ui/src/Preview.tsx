@@ -22,6 +22,8 @@ export interface PreviewSnapshot {
   body: string;
   styles: string;
   theme: string;
+  /** A slide deck, printed one slide per page. */
+  slides: boolean;
 }
 
 interface Props {
@@ -76,7 +78,7 @@ export const Preview = forwardRef<PreviewHandle, Props>(function Preview({ dark,
       } else if (msg.type === "load-error") {
         onLoad.current?.(msg.message);
       } else if (msg.type === "snapshot") {
-        snapshots.current.get(msg.id)?.({ body: msg.body, styles: msg.styles, theme: msg.theme });
+        snapshots.current.get(msg.id)?.({ body: msg.body, styles: msg.styles, theme: msg.theme, slides: msg.slides });
       } else if (msg.type === "slides") {
         slides.current?.(msg.state);
       } else if (msg.type === "shortcut") {

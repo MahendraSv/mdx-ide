@@ -2,7 +2,6 @@
 //! where each top-level `---` starts a new slide.
 
 use markdown::mdast;
-use mdx_core::FrontmatterFormat;
 use mdxjs::hast;
 use serde::Serialize;
 
@@ -10,9 +9,24 @@ use serde::Serialize;
 pub struct Deck {
     /// The source line each slide starts on; one entry per slide.
     pub starts: Vec<usize>,
+    /// The first heading of each slide, for the slide list.
+    pub titles: Vec<Option<String>>,
     /// Component names used in the page. The preview needs them in advance, so that a
     /// missing component breaks only the slide that uses it.
     pub components: Vec<String>,
+}
+
+struct Slide {
+    /// First source line.
+    from: usize,
+    layout: Option<String>,
+    content: Vec<hast::Node>,
+}
+
+impl Slide {
+    fn starting(from: usize) -> Self {
+        Self { from, layout: None, content: Vec::new() }
+    }
 }
 
 /// If the page is a deck, wrap each slide in `<section data-slide="index">`.
@@ -20,15 +34,13 @@ pub struct Deck {
 /// `import` / `export` blocks stay at the top level, where JavaScript requires them.
 pub fn split(source: &mdast::Node, tree: &mut hast::Node) -> Option<Deck> {
     let analysis = mdx_syntax::analyze_tree(source);
-    let frontmatter = analysis.frontmatter?;
-    if !is_deck(&frontmatter.raw, frontmatter.format) {
+    if !mdx_syntax::is_deck(analysis.frontmatter.as_ref()) {
         return None;
     }
     let hast::Node::Root(root) = tree else { return None };
 
     let mut top = Vec::new();
-    // (first source line, content)
-    let mut slides: Vec<(usize, Vec<hast::Node>)> = vec![(1, Vec::new())];
+    let mut slides = vec![Slide::starting(1)];
     for child in std::mem::take(&mut root.children) {
         match child {
             hast::Node::MdxjsEsm(_) => top.push(child),
@@ -37,48 +49,93 @@ pub fn split(source: &mdast::Node, tree: &mut hast::Node) -> Option<Deck> {
                 let line = el.position.as_ref().map_or(1, |p| p.start.line);
                 // A rule before any content opens the first slide, it does not end an empty one.
                 match slides.as_mut_slice() {
-                    [(from, content)] if content.iter().all(is_blank) => *from = line + 1,
-                    _ => slides.push((line + 1, Vec::new())),
+                    [first] if first.layout.is_none() && first.content.iter().all(is_blank) => first.from = line + 1,
+                    _ => slides.push(Slide::starting(line + 1)),
                 }
             }
-            _ => {
-                if let Some((_, content)) = slides.last_mut() {
-                    content.push(child);
+            mut child => {
+                let Some(slide) = slides.last_mut() else { continue };
+                match take_settings(&mut child) {
+                    Some(settings) => {
+                        slide.layout = settings.layout.or(slide.layout.take());
+                        slide.content.extend(settings.content);
+                    }
+                    None => slide.content.push(child),
                 }
             }
         }
     }
 
-    let starts = slides.iter().map(|(from, _)| *from).collect();
+    let starts = slides.iter().map(|s| s.from).collect();
+    let titles = slides.iter().map(|s| title(&s.content)).collect();
     root.children = top;
-    root.children.extend(slides.into_iter().enumerate().map(|(index, (_, children))| {
-        hast::Node::Element(hast::Element {
-            tag_name: "section".into(),
-            properties: vec![("dataSlide".into(), hast::PropertyValue::String(index.to_string()))],
-            children,
-            position: None,
-        })
+    root.children.extend(slides.into_iter().enumerate().map(|(index, slide)| {
+        let mut properties = vec![("dataSlide".into(), hast::PropertyValue::String(index.to_string()))];
+        if let Some(layout) = slide.layout {
+            properties.push(("dataLayout".into(), hast::PropertyValue::String(layout)));
+        }
+        hast::Node::Element(hast::Element { tag_name: "section".into(), properties, children: slide.content, position: None })
     }));
 
     let mut components: Vec<String> =
         analysis.components.into_iter().filter_map(|c| c.name).filter(|n| n.starts_with(char::is_uppercase)).collect();
     components.sort();
     components.dedup();
-    Some(Deck { starts, components })
+    Some(Deck { starts, titles, components })
 }
 
 fn is_blank(node: &hast::Node) -> bool {
     matches!(node, hast::Node::Text(t) if t.value.trim().is_empty())
 }
 
-fn is_deck(raw: &str, format: FrontmatterFormat) -> bool {
-    let kind = match format {
-        FrontmatterFormat::Yaml => {
-            serde_yaml::from_str::<serde_yaml::Value>(raw).ok().and_then(|v| v.get("type")?.as_str().map(str::to_owned))
+/// What a `<Slide>` tag says about the slide it is written on.
+struct Settings {
+    layout: Option<String>,
+    /// Anything written inside the tag; it stays on the slide.
+    content: Vec<hast::Node>,
+}
+
+/// Reads `<Slide layout="…" />`, emptying the tag. `None` if the node is something else.
+fn take_settings(node: &mut hast::Node) -> Option<Settings> {
+    match node {
+        // With source lines, a component sits in a wrapper carrying its name.
+        hast::Node::Element(wrapper) if wrapper.children.len() == 1 => take_settings(&mut wrapper.children[0]),
+        hast::Node::MdxJsxElement(tag) if tag.name.as_deref() == Some("Slide") => {
+            let layout = tag.attributes.iter().find_map(|a| match a {
+                mdast::AttributeContent::Property(p) if p.name == "layout" => match &p.value {
+                    Some(mdast::AttributeValue::Literal(value)) => Some(value.clone()),
+                    _ => None,
+                },
+                _ => None,
+            });
+            Some(Settings { layout, content: std::mem::take(&mut tag.children) })
         }
-        FrontmatterFormat::Toml => raw.parse::<toml::Table>().ok().and_then(|t| t.get("type")?.as_str().map(str::to_owned)),
-    };
-    kind.as_deref() == Some("slides")
+        _ => None,
+    }
+}
+
+/// The text of the first heading on a slide, outside its speaker notes.
+fn title(nodes: &[hast::Node]) -> Option<String> {
+    nodes.iter().find_map(|node| match node {
+        hast::Node::Element(el) if matches!(el.tag_name.as_str(), "h1" | "h2" | "h3" | "h4" | "h5" | "h6") => {
+            Some(text(&el.children).split_whitespace().collect::<Vec<_>>().join(" ")).filter(|t| !t.is_empty())
+        }
+        hast::Node::Element(el) => title(&el.children),
+        hast::Node::MdxJsxElement(e) if e.name.as_deref() != Some("Notes") => title(&e.children),
+        _ => None,
+    })
+}
+
+fn text(nodes: &[hast::Node]) -> String {
+    nodes
+        .iter()
+        .map(|node| match node {
+            hast::Node::Text(t) => t.value.clone(),
+            hast::Node::Element(el) => text(&el.children),
+            hast::Node::MdxJsxElement(e) => text(&e.children),
+            _ => String::new(),
+        })
+        .collect()
 }
 
 #[cfg(test)]
@@ -126,6 +183,40 @@ mod tests {
     fn rules_inside_blocks_do_not_split() {
         let out = deck(&format!("{FRONT}> quote\n>\n> ---\n\n<hr />\n\n```\n---\n```\n"));
         assert_eq!(out.slides.unwrap().starts.len(), 1);
+    }
+
+    #[test]
+    fn slide_tag_sets_the_layout_of_its_slide() {
+        let source = format!(
+            "{FRONT}<Slide layout=\"center\" />\n\n# One\n\n---\n\n## Two\n\n---\n\n<Slide layout=\"full\">\n  <Demo />\n</Slide>\n"
+        );
+        for source_lines in [true, false] {
+            let out = compile(&source, &CompileOptions { source_lines, slides: true, ..Default::default() }).unwrap();
+            assert_eq!(out.slides.as_ref().unwrap().starts.len(), 3);
+            assert_eq!(out.code.matches("\"data-layout\": \"center\"").count(), 1, "{}", out.code);
+            assert_eq!(out.code.matches("\"data-layout\": \"full\"").count(), 1, "{}", out.code);
+            // The tag itself is gone; what it contained stays.
+            assert!(!out.code.contains("_jsx(Slide") && out.code.contains("_jsx(Demo"), "{}", out.code);
+        }
+        // A first slide holding only its settings is still a slide.
+        assert_eq!(deck(&format!("{FRONT}<Slide layout=\"center\" />\n\n---\n\n# Two\n")).slides.unwrap().starts.len(), 2);
+    }
+
+    #[test]
+    fn slides_are_titled_by_their_first_heading() {
+        let source = format!(
+            "{FRONT}# The **big** idea\n\n## Not this\n\n---\n\n<Notes>\n  ## Nor this\n</Notes>\n\n<Columns>\n  ### In a column\n</Columns>\n\n---\n\nNo heading.\n"
+        );
+        let titles = deck(&source).slides.unwrap().titles;
+        assert_eq!(titles, [Some("The big idea".into()), Some("In a column".into()), None]);
+    }
+
+    #[test]
+    fn the_new_deck_template_compiles() {
+        let template = include_str!("../../mdx-workspace/src/new-deck.mdx").replace("${title_yaml}", "Demo").replace("${title}", "Demo");
+        let slides = deck(&template).slides.unwrap();
+        assert_eq!(slides.titles.len(), 3);
+        assert_eq!(slides.titles[0].as_deref(), Some("Demo"));
     }
 
     #[test]

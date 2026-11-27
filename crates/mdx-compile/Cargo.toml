@@ -10,5 +10,3 @@ mdx-syntax.workspace = true
 markdown.workspace = true
 mdxjs.workspace = true
 serde.workspace = true
-serde_yaml.workspace = true
-toml.workspace = true

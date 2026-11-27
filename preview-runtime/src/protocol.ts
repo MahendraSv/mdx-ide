@@ -5,6 +5,8 @@
 export interface Deck {
   /** The source line each slide starts on; one entry per slide. */
   starts: number[];
+  /** The first heading of each slide. */
+  titles: (string | null)[];
   /** Component names used in the page. */
   components: string[];
 }
@@ -25,6 +27,11 @@ export interface SlideState {
   grid: boolean;
   /** Slides that could not be shown. */
   errors: { slide: number; message: string }[];
+  /** Slides whose content does not fit. */
+  overflow: number[];
+  /** Whether there is a step or slide to go back or forward to. */
+  hasPrevious: boolean;
+  hasNext: boolean;
 }
 
 export type ToPreview =
@@ -51,7 +58,7 @@ export type ToPreview =
 export type FromPreview =
   | { type: "ready" }
   | { type: "click"; line: number }
-  | { type: "snapshot"; id: number; body: string; styles: string; theme: string }
+  | { type: "snapshot"; id: number; body: string; styles: string; theme: string; slides: boolean }
   /** A window shortcut pressed while the preview has the keyboard. */
   | { type: "shortcut"; key: "escape" | "present" }
   /** The team component bundle could not be loaded. */

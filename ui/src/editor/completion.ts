@@ -25,17 +25,19 @@ export async function mdxCompletionSource(cx: CompletionContext): Promise<Comple
   // Look back a bounded window: tags can span lines.
   const from = Math.max(0, cx.pos - 2000);
   const before = cx.state.sliceDoc(from, cx.pos);
+  // Enough of the document to read its frontmatter.
+  const head = cx.state.sliceDoc(0, 4000);
 
   const value = ATTR_VALUE.exec(before);
   if (value) {
     const [, component, prop, typed] = value;
-    const items = await api.completePropValues(component, prop);
+    const items = await api.completePropValues(component, prop, head);
     return items.length ? { from: cx.pos - typed.length, options: items.map(toCompletion), validFor: /^[\w-]*$/ } : null;
   }
 
   const tag = TAG_NAME.exec(before);
   if (tag) {
-    const items = await api.completeComponents();
+    const items = await api.completeComponents(head);
     return { from: cx.pos - tag[1].length, options: items.map(toCompletion), validFor: /^[\w.]*$/ };
   }
 
@@ -43,7 +45,7 @@ export async function mdxCompletionSource(cx: CompletionContext): Promise<Comple
   if (attr && !attr[2].includes(">")) {
     const [, component, existing, typed] = attr;
     const already = Array.from(existing.matchAll(/\s([\w-]+)(?==|\s|$)/g), (m) => m[1]);
-    const items = await api.completeProps(component, already);
+    const items = await api.completeProps(component, already, head);
     return items.length ? { from: cx.pos - typed.length, options: items.map(toCompletion), validFor: /^[\w-]*$/ } : null;
   }
   return null;

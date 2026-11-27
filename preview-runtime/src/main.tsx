@@ -1,7 +1,7 @@
 import { Component, type ComponentType, type ErrorInfo, type ReactNode } from "react";
 import { createRoot } from "react-dom/client";
 import { builtinComponents } from "./components";
-import { announce, closeDeck, deckComponents, deckKey, DeckView, followCursor, onDeckChange, openDeck, setPresenting, slideCommand } from "./deck";
+import { announce, closeDeck, deckComponents, deckKey, DeckView, followCursor, onDeckChange, openDeck, setPresenting, slideCommand, slideComponents } from "./deck";
 import { importFromSource, registerTeamPackage } from "./modules";
 import type { FromPreview, ToPreview } from "./protocol";
 import { takeSnapshot } from "./snapshot";
@@ -15,7 +15,7 @@ import "./preview.css";
 type MDXContent = ComponentType<{ components?: Record<string, unknown> }>;
 
 const root = createRoot(document.getElementById("root")!);
-let components: Record<string, unknown> = { ...builtinComponents };
+let components: Record<string, unknown> = { ...slideComponents, ...builtinComponents };
 let currentVersion = 0;
 let docPath = "";
 let cursorLine = 0;
@@ -36,7 +36,7 @@ async function loadTeamComponents() {
     if (!res.ok) return; // not configured → built-in demo components
     const ns = await importFromSource(await res.text());
     const exported = Object.fromEntries(Object.entries(ns).filter(([k]) => /^[A-Z]/.test(k)));
-    components = { ...builtinComponents, ...exported };
+    components = { ...slideComponents, ...builtinComponents, ...exported };
     const pkg = (ns as { packageName?: string }).packageName ?? "@team/ui";
     registerTeamPackage(pkg, ns);
   } catch (e) {
@@ -264,7 +264,7 @@ window.addEventListener("message", (event: MessageEvent<ToPreview>) => {
       break;
     case "snapshot": {
       const page = takeSnapshot();
-      post({ type: "snapshot", id: msg.id, ...(page ?? { body: "", styles: "", theme: "light" }) });
+      post({ type: "snapshot", id: msg.id, ...(page ?? { body: "", styles: "", theme: "light", slides: false }) });
       break;
     }
     case "clear":

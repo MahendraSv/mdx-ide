@@ -5,7 +5,7 @@ use std::collections::HashMap;
 use mdx_compile::{CompileOptions, CompileOutput};
 use mdx_core::{Diagnostic, DocumentAnalysis};
 use mdx_intel::completion::{self, CompletionItem};
-use mdx_intel::ComponentManifest;
+use mdx_intel::{ComponentManifest, ComponentSpec};
 use mdx_workspace::{FileEntry, RenameReport, SearchHit, SearchOptions, Workspace};
 use serde::Serialize;
 use tauri::{AppHandle, State};
@@ -79,8 +79,11 @@ pub fn write_file(state: State<'_, AppState>, path: String, contents: String) ->
 
 /// Create a page (from the collection's template, if any). Returns its relative path.
 #[tauri::command]
-pub fn create_file(state: State<'_, AppState>, path: String, date: String) -> CmdResult<String> {
-    with_ws(&state, |ws| ws.create_file(&path, &date).map_err(|e| e.to_string()))
+pub fn create_file(state: State<'_, AppState>, path: String, date: String, slides: bool) -> CmdResult<String> {
+    with_ws(&state, |ws| {
+        let created = if slides { ws.create_deck(&path) } else { ws.create_file(&path, &date) };
+        created.map_err(|e| e.to_string())
+    })
 }
 
 #[tauri::command]
@@ -142,19 +145,36 @@ fn manifest_or_empty(ws: &Workspace) -> ComponentManifest {
     ws.manifest.clone().unwrap_or_default()
 }
 
+/// What completion offers: the team's components, plus the slide tags in a slide deck.
+/// `head` is the start of the document, enough to read its frontmatter.
+fn completion_manifest(ws: &Workspace, head: &str) -> ComponentManifest {
+    let manifest = manifest_or_empty(ws);
+    if mdx_syntax::declares_deck(head) {
+        mdx_intel::slides::with_slide_components(&manifest)
+    } else {
+        manifest
+    }
+}
+
+/// The slide tags, for hover documentation.
 #[tauri::command]
-pub fn complete_components(state: State<'_, AppState>) -> CmdResult<Vec<CompletionItem>> {
-    with_ws(&state, |ws| Ok(completion::components(&manifest_or_empty(ws))))
+pub fn slide_components() -> Vec<ComponentSpec> {
+    mdx_intel::slides::components()
 }
 
 #[tauri::command]
-pub fn complete_props(state: State<'_, AppState>, component: String, already: Vec<String>) -> CmdResult<Vec<CompletionItem>> {
-    with_ws(&state, |ws| Ok(completion::props(&manifest_or_empty(ws), &component, &already)))
+pub fn complete_components(state: State<'_, AppState>, head: String) -> CmdResult<Vec<CompletionItem>> {
+    with_ws(&state, |ws| Ok(completion::components(&completion_manifest(ws, &head))))
 }
 
 #[tauri::command]
-pub fn complete_prop_values(state: State<'_, AppState>, component: String, prop: String) -> CmdResult<Vec<CompletionItem>> {
-    with_ws(&state, |ws| Ok(completion::prop_values(&manifest_or_empty(ws), &component, &prop)))
+pub fn complete_props(state: State<'_, AppState>, component: String, already: Vec<String>, head: String) -> CmdResult<Vec<CompletionItem>> {
+    with_ws(&state, |ws| Ok(completion::props(&completion_manifest(ws, &head), &component, &already)))
+}
+
+#[tauri::command]
+pub fn complete_prop_values(state: State<'_, AppState>, component: String, prop: String, head: String) -> CmdResult<Vec<CompletionItem>> {
+    with_ws(&state, |ws| Ok(completion::prop_values(&completion_manifest(ws, &head), &component, &prop)))
 }
 
 /// JSON Schema for the document's collection; drives the frontmatter form.
