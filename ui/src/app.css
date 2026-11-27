@@ -152,8 +152,14 @@ kbd { font-size: 11px; padding: 2px 6px; border-radius: 5px; background: var(--c
 .tab-close:hover .dot, .tab-close:focus-visible .dot { display: none; }
 
 .split { flex: 1; min-height: 0; display: flex; }
-.editor-pane { flex: 1 1 0; min-width: 0; min-height: 0; display: flex; flex-direction: column; border-right: 1px solid var(--line); }
-.editor-pane.only { border-right: 0; }
+.editor-pane { flex: 1 1 0; min-width: 0; min-height: 0; display: flex; flex-direction: column; }
+/* A one-pixel line with a wider invisible area to grab. */
+.split-divider { position: relative; z-index: 3; flex-shrink: 0; width: 1px; background: var(--line); cursor: col-resize; touch-action: none; }
+.split-divider::after { content: ""; position: absolute; inset: 0 -4px; }
+.split-divider:hover, .split-divider:active, .split-divider:focus-visible { background: var(--accent-ink); box-shadow: 0 0 0 1px var(--accent-ink); outline: none; }
+/* While any divider is dragged, the preview frame ignores the pointer and text is not selected. */
+body.resizing { user-select: none; -webkit-user-select: none; }
+body.resizing iframe { pointer-events: none; }
 .crumbs { height: 34px; flex-shrink: 0; display: flex; align-items: center; gap: 8px; padding: 0 16px; font-size: 12px; color: var(--muted); border-bottom: 1px solid var(--hair); }
 .crumbs .cur { color: var(--text2); }
 .editor { flex: 1; min-height: 0; display: flex; flex-direction: column; overflow: hidden; }
@@ -164,7 +170,21 @@ kbd { font-size: 11px; padding: 2px 6px; border-radius: 5px; background: var(--c
 .preview-head { height: 34px; flex-shrink: 0; display: flex; align-items: center; gap: 10px; padding: 0 16px; font-size: 12px; color: var(--muted); border-bottom: 1px solid var(--hair); }
 .preview-head .live { display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: var(--accent-ink); margin-right: 6px; }
 .preview-head .sp { flex: 1; }
+.preview-head > span { white-space: nowrap; }
+.preview-head > div { flex-shrink: 0; }
+/* The divider can make the preview narrow: drop the secondary label before anything wraps. */
+.preview-pane { container-type: inline-size; }
+@container (max-width: 380px) {
+  .preview-head .scroll-synced { display: none; }
+}
 .device { display: flex; gap: 2px; }
+.device button:hover:not(:disabled) { background: var(--line); color: var(--text1); }
+/* Full-screen preview: the same pane, laid over the whole window, so the page is not reloaded.
+   Its controls float in a corner and stay faint until used. */
+.preview-pane.presenting { position: fixed; inset: 0; z-index: 30; }
+.preview-pane.presenting .preview-head { position: absolute; z-index: 2; top: 24px; right: 34px; height: 32px; padding: 0 8px; border: 1px solid var(--border); border-radius: 10px; background: var(--panel); opacity: 0.35; transition: opacity 0.15s; }
+.preview-pane.presenting .preview-head:hover, .preview-pane.presenting .preview-head:focus-within { opacity: 1; }
+.preview-pane.presenting .preview-head > span { display: none; }
 .device button { width: 28px; height: 24px; display: grid; place-items: center; border: 0; border-radius: 6px; background: transparent; color: var(--muted); }
 .device button[aria-pressed="true"] { background: var(--line); color: var(--text1); }
 .preview-head .live.bad { background: var(--err); }

@@ -25,6 +25,13 @@ mdx-intel.workspace = true
 mdx-workspace.workspace = true
 mdx-git.workspace = true
 
+[target.'cfg(target_os = "macos")'.dependencies]
+# PDF export drives WKWebView printing directly (see src/export.rs).
+objc2 = "0.6"
+objc2-app-kit = { version = "0.3", features = ["NSGraphics", "NSPrintInfo", "NSPrintOperation", "NSResponder", "NSView", "NSWindow"] }
+objc2-foundation = { version = "0.3", features = ["NSDictionary", "NSGeometry", "NSString", "NSURL"] }
+objc2-web-kit = { version = "0.3", features = ["WKWebView", "objc2-app-kit"] }
+
 [features]
 # Used by `tauri build`; serves the bundled frontend instead of the dev server.
 custom-protocol = ["tauri/custom-protocol"]

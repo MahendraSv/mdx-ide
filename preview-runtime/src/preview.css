@@ -1,5 +1,5 @@
 /* The area behind the card follows the app theme; the document card is the same in both
-   (design handoff, "Preview document"). */
+   (design handoff, "Preview document"). The card fills the width of the preview. */
 :root {
   --previewBg: #eceef2;
   --card: #fbfbf9;
@@ -47,8 +47,6 @@ body {
 
 .mdx-ide-doc {
   box-sizing: border-box;
-  max-width: 620px;
-  margin: 0 auto;
   padding: 40px 44px 48px;
   border-radius: 14px;
   background: var(--card);
@@ -78,7 +76,7 @@ body {
 .mdx-ide-doc table { display: block; overflow-x: auto; border-collapse: collapse; font-size: 14px; }
 .mdx-ide-doc th, .mdx-ide-doc td { border: 1px solid var(--edge); padding: 6px 10px; text-align: left; }
 .mdx-ide-doc th { background: var(--strip); color: var(--heading); }
-.mdx-ide-error { max-width: 620px; margin: 0 auto; padding: 16px 20px; border: 1px solid var(--danger); border-radius: 12px; background: var(--dangerFill); color: var(--danger); font: 13px/1.5 "Inter", sans-serif; }
+.mdx-ide-error { padding: 16px 20px; border: 1px solid var(--danger); border-radius: 12px; background: var(--dangerFill); color: var(--danger); font: 13px/1.5 "Inter", sans-serif; }
 .mdx-ide-error pre { white-space: pre-wrap; }
 
 /* Cursor sync: the component under the editor cursor. */

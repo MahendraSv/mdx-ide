@@ -20,6 +20,7 @@ Built with **Tauri 2**. The Rust core does the parsing, compiling, checking and 
 | MDX syntax errors with positions (e.g. HTML comments, unclosed JSX), image alt-text check | `mdx-syntax` |
 | Outline panel, workspace search, Problems panel, word count, atomic saves, file watching (external edits reload, config hot-reloads) | various |
 | **Git**: Source Control panel (status, stage, discard, commit, fetch, pull, push), branch create / switch, side-by-side source and rendered diffs, blame gutter. Needs `git` installed | `mdx-git`, `ui/src/git` |
+| **Full-screen preview** (⌘⇧↵, Esc exits) and **Export to PDF** (macOS): the page as it currently looks, including component state | `ui/src/App.tsx`, `src-tauri/src/export.rs` |
 | Manifest generator for React/TypeScript design systems | `sidecars/manifest-gen` |
 
 ## Quick start

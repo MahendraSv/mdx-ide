@@ -11,6 +11,7 @@
 //! | `/team/css/<n>`      | global CSS `preview.css[n]`                                    |
 //! | `/ws/<path>`         | image/media assets from the open workspace (never `.mdx`/source) |
 //! | `/static/<path>`     | root-relative assets (`/img/x.png`) looked up in `static_dirs` |
+//! | `/print`             | the page being exported to PDF (see `export.rs`)               |
 //!
 //! URL shape differs per OS (`mdxpreview://localhost/` on macOS/Linux,
 //! `http://mdxpreview.localhost/` on Windows); the UI builds it with
@@ -43,6 +44,9 @@ pub fn handle<R: Runtime>(ctx: UriSchemeContext<'_, R>, request: Request<Vec<u8>
     let app = ctx.app_handle();
     let path = percent_decode(request.uri().path());
     let path = path.trim_start_matches('/');
+    if path == crate::export::PRINT_PATH {
+        return print_page(app);
+    }
 
     let file: Option<PathBuf> = if let Some(rest) = path.strip_prefix("team/") {
         team_file(app, rest)
@@ -76,6 +80,19 @@ pub fn handle<R: Runtime>(ctx: UriSchemeContext<'_, R>, request: Request<Vec<u8>
             .body(Cow::Borrowed(&b"not found"[..]))
             .unwrap(),
     }
+}
+
+/// The page being exported to PDF, if an export is running. Served without script permission.
+fn print_page<R: Runtime>(app: &tauri::AppHandle<R>) -> Response<Cow<'static, [u8]>> {
+    let page = app.try_state::<AppState>().and_then(|s| s.print_document.lock().ok().and_then(|d| d.clone()));
+    let status = if page.is_some() { StatusCode::OK } else { StatusCode::NOT_FOUND };
+    Response::builder()
+        .status(status)
+        .header(header::CONTENT_TYPE, "text/html; charset=utf-8")
+        .header(header::CONTENT_SECURITY_POLICY, crate::export::PRINT_CSP)
+        .header(header::CACHE_CONTROL, "no-store")
+        .body(Cow::Owned(page.unwrap_or_default().into_bytes()))
+        .unwrap()
 }
 
 fn team_file<R: Runtime>(app: &tauri::AppHandle<R>, rest: &str) -> Option<PathBuf> {
