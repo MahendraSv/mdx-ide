@@ -10,5 +10,6 @@ pub mod completion;
 pub mod frontmatter;
 pub mod links;
 pub mod manifest;
+pub mod slides;
 
 pub use manifest::{ComponentManifest, ComponentSpec, PropSpec};

@@ -1,11 +1,16 @@
 import { convertFileSrc } from "@tauri-apps/api/core";
 import { forwardRef, useEffect, useImperativeHandle, useRef, useState } from "react";
-import type { FromPreview, ToPreview } from "./preview-protocol";
+import type { FromPreview, PreviewPage, SlideCommand, SlideState, ToPreview } from "./preview-protocol";
 
 export interface PreviewHandle {
-  render(code: string, docPath: string): void;
+  render(page: PreviewPage, docPath: string): void;
+  /** Slide decks: move between slides. */
+  slide(command: SlideCommand): void;
+  /** Give the preview the keyboard. */
+  focus(): void;
   scrollToLine(line: number): void;
-  setCursor(line: number): void;
+  /** `moved`: the person just put the cursor there. */
+  setCursor(line: number, moved?: boolean): void;
   /** Rendered diff: mark changed blocks. */
   markChanges(kind: "added" | "removed", ranges: [number, number][]): void;
   clear(): void;
@@ -17,6 +22,8 @@ export interface PreviewSnapshot {
   body: string;
   styles: string;
   theme: string;
+  /** A slide deck, printed one slide per page. */
+  slides: boolean;
 }
 
 interface Props {
@@ -25,12 +32,16 @@ interface Props {
   onSourceClick?(line: number): void;
   onLoadError?(message: string): void;
   onShortcut?(key: "escape" | "present"): void;
+  /** The slide on screen; `null` when the page is not a deck. */
+  onSlides?(state: SlideState | null): void;
+  /** The preview fills the screen. */
+  presenting?: boolean;
 }
 
 // Served by src-tauri/src/preview_protocol.rs on its own origin.
 const PREVIEW_URL = convertFileSrc("", "mdxpreview");
 
-export const Preview = forwardRef<PreviewHandle, Props>(function Preview({ dark, onRuntimeError, onSourceClick, onLoadError, onShortcut }, ref) {
+export const Preview = forwardRef<PreviewHandle, Props>(function Preview({ dark, onRuntimeError, onSourceClick, onLoadError, onShortcut, onSlides, presenting = false }, ref) {
   const frame = useRef<HTMLIFrameElement>(null);
   const [ready, setReady] = useState(false);
   const version = useRef(0);
@@ -45,6 +56,8 @@ export const Preview = forwardRef<PreviewHandle, Props>(function Preview({ dark,
   onLoad.current = onLoadError;
   const shortcut = useRef(onShortcut);
   shortcut.current = onShortcut;
+  const slides = useRef(onSlides);
+  slides.current = onSlides;
   const snapshots = useRef(new Map<number, (s: PreviewSnapshot) => void>());
   const snapshotId = useRef(0);
 
@@ -60,12 +73,14 @@ export const Preview = forwardRef<PreviewHandle, Props>(function Preview({ dark,
       if (msg.type === "ready") {
         setReady(true);
         if (pending.current) send(pending.current);
-        send({ type: "cursor", line: cursor.current });
+        send({ type: "cursor", line: cursor.current, moved: false });
         if (changes.current) send(changes.current);
       } else if (msg.type === "load-error") {
         onLoad.current?.(msg.message);
       } else if (msg.type === "snapshot") {
-        snapshots.current.get(msg.id)?.({ body: msg.body, styles: msg.styles, theme: msg.theme });
+        snapshots.current.get(msg.id)?.({ body: msg.body, styles: msg.styles, theme: msg.theme, slides: msg.slides });
+      } else if (msg.type === "slides") {
+        slides.current?.(msg.state);
       } else if (msg.type === "shortcut") {
         shortcut.current?.(msg.key);
       } else if (msg.type === "click") {
@@ -84,18 +99,29 @@ export const Preview = forwardRef<PreviewHandle, Props>(function Preview({ dark,
     if (ready) send({ type: "theme", dark });
   }, [ready, dark]);
 
+  useEffect(() => {
+    if (ready) send({ type: "present", on: presenting });
+  }, [ready, presenting]);
+
   useImperativeHandle(ref, () => ({
-    render(code, docPath) {
-      const msg: ToPreview = { type: "render", version: ++version.current, code, docPath };
+    render(page, docPath) {
+      const msg: ToPreview = { type: "render", version: ++version.current, code: page.code, docPath, slides: page.slides };
       pending.current = msg;
       if (ready) send(msg);
+    },
+    slide(command) {
+      if (ready) send({ type: "slide", command });
+    },
+    focus() {
+      frame.current?.focus();
+      if (ready) send({ type: "focus" });
     },
     scrollToLine(line) {
       if (ready) send({ type: "scrollToLine", line });
     },
-    setCursor(line) {
+    setCursor(line, moved = false) {
       cursor.current = line;
-      if (ready) send({ type: "cursor", line });
+      if (ready) send({ type: "cursor", line, moved });
     },
     markChanges(kind, ranges) {
       changes.current = { type: "changes", kind, ranges };

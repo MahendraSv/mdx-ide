@@ -9,6 +9,7 @@
 //! must never take the IDE down with it.
 
 mod esm;
+mod slides;
 mod slug;
 pub mod urls;
 
@@ -17,6 +18,7 @@ use markdown::message::{Message, Place};
 use markdown::{unist, Constructs, ParseOptions};
 use mdx_core::*;
 
+pub use slides::{declares_deck, is_deck};
 pub use slug::Slugger;
 
 /// Stack size for the parser thread.

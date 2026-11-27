@@ -32,11 +32,23 @@ impl Workspace {
     /// The contents come from the matching schema rule's `template` (with `${title}` and
     /// `${date}` filled in, `${author}` left empty), otherwise a minimal page.
     pub fn create_file(&self, rel: &str, date: &str) -> Result<String, WorkspaceError> {
+        self.create_with(rel, |rel| self.new_page(rel, date))
+    }
+
+    /// Create a slide deck with a few example slides.
+    pub fn create_deck(&self, rel: &str) -> Result<String, WorkspaceError> {
+        self.create_with(rel, |rel| {
+            let title = title_of(rel);
+            Ok(include_str!("new-deck.mdx").replace("${title_yaml}", &yaml_string(&title)).replace("${title}", &title))
+        })
+    }
+
+    fn create_with(&self, rel: &str, contents: impl FnOnce(&str) -> Result<String, WorkspaceError>) -> Result<String, WorkspaceError> {
         if !rel.trim().ends_with(".mdx") {
             return Err(invalid("only .mdx files can be created"));
         }
         let (rel, target) = self.new_entry(rel)?;
-        let contents = self.new_page(&rel, date)?;
+        let contents = contents(&rel)?;
         if let Some(parent) = target.parent() {
             std::fs::create_dir_all(parent)?;
         }
@@ -46,8 +58,7 @@ impl Workspace {
     }
 
     fn new_page(&self, rel: &str, date: &str) -> Result<String, WorkspaceError> {
-        let stem = Path::new(rel).file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_default();
-        let title = title_from(&stem);
+        let title = title_of(rel);
         let rule = self.schema_rule_for(rel);
         if let Some(template) = rule.and_then(|r| r.template.as_ref()) {
             let path = self.root().join(template).canonicalize()?;
@@ -203,6 +214,11 @@ fn yaml_string(s: &str) -> String {
     }
 }
 
+/// A page title from its file name.
+fn title_of(rel: &str) -> String {
+    title_from(&Path::new(rel).file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_default())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -242,6 +258,12 @@ mod tests {
             assert!(ws.create_dir(bad).is_err(), "{bad:?} should be refused");
         }
         assert!(ws.create_file("notes.txt", "x").is_err());
+
+        ws.create_deck("talks/team-demo.mdx").unwrap();
+        let deck = ws.read("talks/team-demo.mdx").unwrap();
+        assert!(deck.contains("type: slides") && deck.contains("# Team demo"), "{deck}");
+        assert!(ws.analyze("talks/team-demo.mdx", &deck).diagnostics.is_empty());
+        assert!(ws.create_deck("talks/team-demo.mdx").is_err());
         assert!(ws.create_file("../escape.mdx", "x").is_err());
     }
 

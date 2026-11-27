@@ -7,6 +7,8 @@ export type EntryKind = "file" | "folder";
 export interface Draft {
   kind: EntryKind;
   parent: string;
+  /** A new page that starts as a slide deck. */
+  slides?: boolean;
 }
 
 interface Props {
@@ -223,9 +225,10 @@ export function Explorer(props: Props) {
     <>
       {draft && draft.parent === node.path && (
         <NameField
-          key={`${draft.kind}:${draft.parent}`}
+          key={`${draft.kind}:${draft.parent}:${draft.slides ?? false}`}
           kind={draft.kind}
-          label={`New ${draft.kind} name${draft.parent ? ` in ${draft.parent}` : ""}`}
+          label={`New ${draft.slides ? "slide deck" : draft.kind} name${draft.parent ? ` in ${draft.parent}` : ""}`}
+          placeholder={draft.slides ? "Slide deck name" : undefined}
           indent={indent(depth)}
           onSubmit={props.onSubmitDraft}
           onCancel={props.onCancelDraft}
@@ -407,7 +410,17 @@ function ContextMenu({ x, y, label, items, onClose }: { x: number; y: number; la
 }
 
 /** Inline name field for new and renamed entries. Enter confirms, Escape or leaving cancels. */
-function NameField({ kind, label, indent, initial = "", onSubmit, onCancel }: { kind: EntryKind; label: string; indent: number; initial?: string; onSubmit(name: string): Promise<string | null>; onCancel(): void }) {
+interface NameFieldProps {
+  kind: EntryKind;
+  label: string;
+  indent: number;
+  initial?: string;
+  placeholder?: string;
+  onSubmit(name: string): Promise<string | null>;
+  onCancel(): void;
+}
+
+function NameField({ kind, label, indent, initial = "", placeholder, onSubmit, onCancel }: NameFieldProps) {
   const [name, setName] = useState(initial);
   const [error, setError] = useState<string | null>(null);
   const input = useRef<HTMLInputElement>(null);
@@ -449,7 +462,7 @@ function NameField({ kind, label, indent, initial = "", onSubmit, onCancel }: { 
           ref={input}
           aria-label={label}
           aria-invalid={!!error}
-          placeholder={kind === "file" ? "page-name.mdx" : "folder-name"}
+          placeholder={placeholder ?? (kind === "file" ? "page-name.mdx" : "folder-name")}
           spellCheck={false}
           autoCapitalize="off"
           value={name}

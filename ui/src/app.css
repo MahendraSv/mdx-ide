@@ -185,6 +185,23 @@ body.resizing iframe { pointer-events: none; }
 .preview-pane.presenting .preview-head { position: absolute; z-index: 2; top: 24px; right: 34px; height: 32px; padding: 0 8px; border: 1px solid var(--border); border-radius: 10px; background: var(--panel); opacity: 0.35; transition: opacity 0.15s; }
 .preview-pane.presenting .preview-head:hover, .preview-pane.presenting .preview-head:focus-within { opacity: 1; }
 .preview-pane.presenting .preview-head > span { display: none; }
+/* A presentation: controls sit in the lower corner and stay out of the way until pointed at. */
+.preview-pane.presenting.deck { background: #000; }
+.preview-pane.presenting.deck .preview-head { top: auto; right: 12px; bottom: 12px; opacity: 0.15; }
+.preview-pane.presenting.deck .preview-head:hover, .preview-pane.presenting.deck .preview-head:focus-within { opacity: 1; }
+.slide-nav { align-items: center; }
+.slide-nav .count { min-width: 44px; text-align: center; font-variant-numeric: tabular-nums; color: var(--text2); white-space: nowrap; }
+.device button:disabled { opacity: 0.4; }
+.slide-warning { width: 15px; height: 15px; display: grid; place-items: center; border-radius: 50%; background: var(--synStr); color: var(--panel); font-size: 10px; font-weight: 700; }
+.preview-pane.presenting .slide-warning { display: none; }
+@container (max-width: 340px) {
+  .preview-pane.deck .live-label { display: none; }
+}
+/* At its narrowest the header keeps the essentials; R still resets a slide. */
+@container (max-width: 300px) {
+  .preview-pane.deck:not(.presenting) .preview-head { gap: 4px; padding: 0 8px; }
+  .preview-pane.deck:not(.presenting) .slide-nav button:last-of-type { display: none; }
+}
 .device button { width: 28px; height: 24px; display: grid; place-items: center; border: 0; border-radius: 6px; background: transparent; color: var(--muted); }
 .device button[aria-pressed="true"] { background: var(--line); color: var(--text1); }
 .preview-head .live.bad { background: var(--err); }

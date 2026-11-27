@@ -15,6 +15,20 @@ export function Outline({ items, onGoto }: { items: OutlineItem[]; onGoto(line: 
   );
 }
 
+/** The slides of a deck, in place of the heading outline. */
+export function SlideList({ starts, titles, current, onGoto }: { starts: number[]; titles: (string | null)[]; current: number | null; onGoto(line: number): void }) {
+  return (
+    <div className="tree-list">
+      {starts.map((line, i) => (
+        <button type="button" key={i} className={`tree${i === current ? " active" : ""}`} aria-current={i === current || undefined} onClick={() => onGoto(line)} title={`Slide ${i + 1}, line ${line}`}>
+          <span className="tag">{i + 1}</span>
+          <span className="name">{titles[i] ?? <em>Slide {i + 1}</em>}</span>
+        </button>
+      ))}
+    </div>
+  );
+}
+
 export function Search({ onOpen }: { onOpen(path: string, line: number, column: number): void }) {
   const [query, setQuery] = useState("");
   const [hits, setHits] = useState<SearchHit[]>([]);
@@ -87,7 +101,22 @@ function snippetFor(c: ComponentManifest["components"][number]): string {
   return c.acceptsChildren ? `<${c.name}${req}>\n  \${}\n</${c.name}>` : `<${c.name}${req} />`;
 }
 
-export function Problems({ diagnostics, runtimeError, note, onGoto }: { diagnostics: Diagnostic[]; runtimeError: string | null; note?: string | null; onGoto(line: number, column: number): void }) {
+export interface SlideIssue {
+  line: number;
+  message: string;
+  severity: "error" | "warning";
+}
+
+interface ProblemsProps {
+  diagnostics: Diagnostic[];
+  runtimeError: string | null;
+  /** What the preview found wrong with particular slides, with the line each starts on. */
+  slideIssues?: SlideIssue[];
+  note?: string | null;
+  onGoto(line: number, column: number): void;
+}
+
+export function Problems({ diagnostics, runtimeError, slideIssues = [], note, onGoto }: ProblemsProps) {
   return (
     <ul className="list problems">
       {runtimeError && (
@@ -95,6 +124,12 @@ export function Problems({ diagnostics, runtimeError, note, onGoto }: { diagnost
           <span className="badge">preview</span> {runtimeError}
         </li>
       )}
+      {slideIssues.map((e, i) => (
+        <li key={`slide-${i}`} className={`sev-${e.severity}`} onClick={() => onGoto(e.line, 1)}>
+          <span className="badge">preview</span> {e.message}
+          <span className="dir"> — line {e.line}</span>
+        </li>
+      ))}
       {note && <li className="empty">{note}</li>}
       {diagnostics.map((d, i) => (
         <li key={i} className={`sev-${d.severity}`} title={`${d.source} · ${d.rule}`} onClick={() => d.range && onGoto(d.range.start.line, d.range.start.column)}>
@@ -102,7 +137,7 @@ export function Problems({ diagnostics, runtimeError, note, onGoto }: { diagnost
           {d.range && <span className="dir"> — line {d.range.start.line}</span>}
         </li>
       ))}
-      {diagnostics.length === 0 && !runtimeError && <li className="empty">No problems</li>}
+      {diagnostics.length === 0 && !runtimeError && slideIssues.length === 0 && <li className="empty">No problems</li>}
     </ul>
   );
 }

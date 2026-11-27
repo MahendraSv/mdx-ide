@@ -7,3 +7,5 @@ edition.workspace = true
 [dependencies]
 mdx-core.workspace = true
 markdown.workspace = true
+serde_yaml.workspace = true
+toml.workspace = true

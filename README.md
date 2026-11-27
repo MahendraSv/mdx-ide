@@ -21,7 +21,36 @@ Built with **Tauri 2**. The Rust core does the parsing, compiling, checking and 
 | Outline panel, workspace search, Problems panel, word count, atomic saves, file watching (external edits reload, config hot-reloads) | various |
 | **Git**: Source Control panel (status, stage, discard, commit, fetch, pull, push), branch create / switch, side-by-side source and rendered diffs, blame gutter. Needs `git` installed | `mdx-git`, `ui/src/git` |
 | **Full-screen preview** (⌘⇧↵, Esc exits) and **Export to PDF** (macOS): the page as it currently looks, including component state | `ui/src/App.tsx`, `src-tauri/src/export.rs` |
+| **Slide decks** (see below): present a page one slide at a time, with interactive components | `mdx-compile/src/slides.rs`, `preview-runtime/src/deck.tsx` |
 | Manifest generator for React/TypeScript design systems | `sidecars/manifest-gen` |
+
+## Slide decks
+
+A page with `type: slides` in its frontmatter is a deck, and each `---` starts a new slide. Leave a blank line before `---`: directly under text, it makes that text a heading (the editor warns you). **New slide deck…** in the command palette (⌘K) creates a starter deck; see also `examples/docs-site/docs/guides/slides-demo.mdx`.
+
+| Tag | Purpose |
+|---|---|
+| `<Slide layout="center" />` | Centres the slide it is written on. `layout="full"` removes the margins, for a large demo |
+| `<Columns>` | Places each child side by side; wrap several blocks in `<Column>` |
+| `<Step>` | Appears on a key press while presenting |
+| `<Notes>` | Speaker notes: shown below the slide while editing, hidden while presenting and in the PDF |
+
+A team component with one of these names replaces the built-in one (except `<Slide>`).
+
+Press ⌘⇧↵ (Ctrl+Shift+Enter) to present from the current slide.
+
+| Key | Action |
+|---|---|
+| →, Space, Page Down | Next step or slide |
+| ←, Shift+Space, Page Up | Back |
+| Home, End | First, last slide |
+| G | All slides |
+| R | Reset the components and steps on this slide |
+| Esc | Close the overview, leave a field, or stop presenting |
+
+Keys go to a component while you type in a field or use a slider, tab list or similar widget. All slides stay loaded, so components keep their state (and timers or videos keep running) until the page is edited. The preview sandbox applies: no network requests, embedded sites, browser storage or pop-up dialogs.
+
+Slides are 960×540, scaled to fit. The Problems panel lists slides whose content does not fit. **Export to PDF** writes one 16:9 page per slide, as the components currently look, with every step shown. In decks, the lint rules for a single top-level heading and unique headings are not applied.
 
 ## Quick start
 

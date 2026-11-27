@@ -53,6 +53,8 @@ pub enum DiagnosticSource {
     A11y,
     /// Style / consistency rules from `mdxlint` (remark-lint).
     Mdxlint,
+    /// Slide deck authoring checks.
+    Slides,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

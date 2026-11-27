@@ -1,6 +1,7 @@
 import { Component, type ComponentType, type ErrorInfo, type ReactNode } from "react";
 import { createRoot } from "react-dom/client";
 import { builtinComponents } from "./components";
+import { announce, closeDeck, deckComponents, deckKey, DeckView, followCursor, onDeckChange, openDeck, setPresenting, slideCommand, slideComponents } from "./deck";
 import { importFromSource, registerTeamPackage } from "./modules";
 import type { FromPreview, ToPreview } from "./protocol";
 import { takeSnapshot } from "./snapshot";
@@ -14,7 +15,7 @@ import "./preview.css";
 type MDXContent = ComponentType<{ components?: Record<string, unknown> }>;
 
 const root = createRoot(document.getElementById("root")!);
-let components: Record<string, unknown> = { ...builtinComponents };
+let components: Record<string, unknown> = { ...slideComponents, ...builtinComponents };
 let currentVersion = 0;
 let docPath = "";
 let cursorLine = 0;
@@ -35,7 +36,7 @@ async function loadTeamComponents() {
     if (!res.ok) return; // not configured → built-in demo components
     const ns = await importFromSource(await res.text());
     const exported = Object.fromEntries(Object.entries(ns).filter(([k]) => /^[A-Z]/.test(k)));
-    components = { ...builtinComponents, ...exported };
+    components = { ...slideComponents, ...builtinComponents, ...exported };
     const pkg = (ns as { packageName?: string }).packageName ?? "@team/ui";
     registerTeamPackage(pkg, ns);
   } catch (e) {
@@ -59,6 +60,23 @@ function resolveAsset(src: unknown): string | undefined {
   if (src.startsWith("/")) return `/static${src}`; // resolved against config.static_dirs
   const dir = docPath.includes("/") ? docPath.slice(0, docPath.lastIndexOf("/") + 1) : "";
   return `/ws/${dir}${src}`;
+}
+
+onDeckChange((state) => post({ type: "slides", state }));
+
+/** Stand-ins for components that do not exist. Without them one unknown name stops the whole
+ *  page; with them only the slide that uses it fails. */
+function missingComponents(names: string[]): Record<string, unknown> {
+  return Object.fromEntries(
+    names
+      .filter((name) => !name.includes(".") && !(name in components))
+      .map((name) => [
+        name,
+        () => {
+          throw new Error(`Expected component \`${name}\` to be defined: it is not one of your components.`);
+        },
+      ]),
+  );
 }
 
 const overrides = {
@@ -138,21 +156,31 @@ async function render(msg: Extract<ToPreview, { type: "render" }>) {
   // e.g. after saving: the same module for the same page.
   if (shown && shown.code === msg.code && shown.docPath === msg.docPath) {
     post({ type: "rendered", version: msg.version });
+    announce();
     return;
   }
   // Keep the scroll position while editing one file; start at the top of a different one.
-  const scrollY = msg.docPath === docPath ? window.scrollY : 0;
+  const newDocument = msg.docPath !== docPath;
+  const scrollY = newDocument || msg.slides ? 0 : window.scrollY;
   docPath = msg.docPath;
   try {
     const mod = await importFromSource<{ default: MDXContent }>(msg.code);
     if (msg.version !== currentVersion) return; // a newer edit arrived meanwhile
     const Content = mod.default;
+    if (msg.slides) openDeck(msg.slides.starts, newDocument, cursorLine);
+    else closeDeck();
     root.render(
       <ErrorBoundary key={msg.version} version={msg.version}>
-        <article className="mdx-ide-doc">
-          <div className="mdx-ide-crumbs">{breadcrumb(msg.docPath)}</div>
-          <Content components={{ ...components, ...overrides }} />
-        </article>
+        {msg.slides ? (
+          <DeckView>
+            <Content components={{ ...missingComponents(msg.slides.components), ...components, ...overrides, ...deckComponents }} />
+          </DeckView>
+        ) : (
+          <article className="mdx-ide-doc">
+            <div className="mdx-ide-crumbs">{breadcrumb(msg.docPath)}</div>
+            <Content components={{ ...components, ...overrides }} />
+          </article>
+        )}
       </ErrorBoundary>,
     );
     shown = { code: msg.code, docPath: msg.docPath };
@@ -165,6 +193,8 @@ async function render(msg: Extract<ToPreview, { type: "render" }>) {
 }
 
 function scrollToLine(line: number) {
+  // A deck shows the slide under the cursor instead.
+  if (document.documentElement.hasAttribute("data-deck")) return;
   const nodes = Array.from(document.querySelectorAll<HTMLElement>("[data-line]"));
   let best: HTMLElement | undefined;
   for (const n of nodes) {
@@ -174,12 +204,18 @@ function scrollToLine(line: number) {
   (best ?? nodes[0])?.scrollIntoView({ block: "start", behavior: "smooth" });
 }
 
+const CONTROLS = ["button", "input", "select", "textarea", "label", "summary", "audio", "video", "[contenteditable]:not([contenteditable='false'])"]
+  .concat(["button", "tab", "switch", "checkbox", "radio", "slider", "menuitem", "option", "combobox", "textbox"].map((role) => `[role='${role}']`))
+  .join(", ");
+
 // Click-to-source: report the source line of the nearest annotated element.
 document.addEventListener("click", (e) => {
   const el = (e.target as HTMLElement | null)?.closest<HTMLElement>("[data-line]");
   if (!el) return;
   // Let links behave normally inside a sandbox: never navigate the preview away.
   if ((e.target as HTMLElement).closest("a")) e.preventDefault();
+  // Using a control is not a request to see its source: the editor would take the keyboard from it.
+  if ((e.target as HTMLElement).closest(CONTROLS)) return;
   post({ type: "click", line: Number(el.dataset.line) });
 });
 
@@ -187,6 +223,10 @@ document.addEventListener("click", (e) => {
 window.addEventListener("keydown", (e) => {
   // A component that used the key (closing its own pop-up, say) marks it as handled.
   if (e.defaultPrevented) return;
+  if (deckKey(e)) {
+    e.preventDefault();
+    return;
+  }
   const key = e.key === "Escape" ? "escape" : e.key === "Enter" && e.shiftKey && (e.metaKey || e.ctrlKey) ? "present" : null;
   if (!key) return;
   e.preventDefault();
@@ -205,7 +245,17 @@ window.addEventListener("message", (event: MessageEvent<ToPreview>) => {
       break;
     case "cursor":
       cursorLine = msg.line;
+      if (msg.moved) followCursor(msg.line);
       highlightActive();
+      break;
+    case "slide":
+      slideCommand(msg.command);
+      break;
+    case "present":
+      setPresenting(msg.on);
+      break;
+    case "focus":
+      window.focus();
       break;
     case "changes":
       changes = { kind: msg.kind, ranges: msg.ranges };
@@ -214,7 +264,7 @@ window.addEventListener("message", (event: MessageEvent<ToPreview>) => {
       break;
     case "snapshot": {
       const page = takeSnapshot();
-      post({ type: "snapshot", id: msg.id, ...(page ?? { body: "", styles: "", theme: "light" }) });
+      post({ type: "snapshot", id: msg.id, ...(page ?? { body: "", styles: "", theme: "light", slides: false }) });
       break;
     }
     case "clear":
@@ -222,6 +272,7 @@ window.addEventListener("message", (event: MessageEvent<ToPreview>) => {
       shown = null;
       docPath = "";
       root.render(null);
+      closeDeck();
       break;
     case "theme":
       document.documentElement.dataset.theme = msg.dark ? "dark" : "light";

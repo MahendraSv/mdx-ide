@@ -144,12 +144,13 @@ function Side({ label, text, path, dark, kind, ranges }: { label: string; text: 
   useEffect(() => {
     if (!text) return;
     let current = true;
-    api.compilePreview(path, text).then(
+    // A deck is compared as one page, so that every changed block is visible.
+    api.compilePreview(path, text, false).then(
       (result) => {
         if (!current) return;
         if (result.status === "ok") {
           setError(null);
-          preview.current?.render(result.code, path);
+          preview.current?.render(result, path);
           preview.current?.markChanges(kind, ranges);
         } else {
           preview.current?.clear();

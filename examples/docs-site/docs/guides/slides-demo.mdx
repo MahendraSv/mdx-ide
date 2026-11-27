@@ -1,0 +1,65 @@
+---
+title: Slides demo
+description: A short deck that shows interactive components on slides
+type: slides
+---
+
+<Slide layout="center" />
+
+# Slides in MDX IDE
+
+Press **⌘⇧↵** to present, then use the arrow keys.
+
+<Notes>
+  These are speaker notes. The audience does not see them.
+</Notes>
+
+---
+
+## Choose a package manager
+
+<Tabs>
+  <Tab label="npm">Run `npm install`.</Tab>
+  <Tab label="pnpm">Run `pnpm install`.</Tab>
+</Tabs>
+
+<Callout type="tip" title="State is kept">
+  Pick a tab, move to the next slide and come back.
+</Callout>
+
+---
+
+## Side by side
+
+<Columns>
+  <Column>
+    ### Writing
+
+    One page holds the whole deck.
+  </Column>
+  <Column>
+    ### Presenting
+
+    Components stay interactive.
+  </Column>
+</Columns>
+
+---
+
+## One step at a time
+
+<Step>This point appears with the first key press.</Step>
+
+<Step>This one appears with the next.</Step>
+
+---
+
+## Keys
+
+| Key | Action |
+|---|---|
+| → or Space | Next step or slide |
+| ← | Back |
+| G | All slides |
+| R | Reset this slide |
+| Esc | Stop presenting |
